@@ -1,1 +1,623 @@
-<!doctypehtml><html lang="en"><meta charset="utf-8"><meta content="width=device-width,initial-scale=1"name="viewport"><title>KAISER</title><style>:root{--light:#f0d9b5;--dark:#b58863;--highlight:rgba(50, 200, 50, 0.45);--capture:rgba(200, 50, 50, 0.45);--dark-bg:#262421;--dark-panel:#3c3835;--dark-border:#3c3a37;--dark-text:#e8e8e8;--dark-hover:#4a4845;--accent:#82b446;--accent-hover:#739937;--eval-white:#f0f0f0;--eval-black:#3d3d3d}body,html{height:100%;width:100%;margin:0;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--dark-bg);color:var(--dark-text)}#game{display:flex;gap:20px;align-items:flex-start;background:var(--dark-panel);padding:20px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3)}canvas{background:#ddd;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.2)}#controls{width:320px}#debugPanel{display:block;background:var(--dark-panel);border:1px solid var(--dark-border);color:var(--dark-text)}button{display:block;margin:8px 0;padding:10px 12px;border-radius:6px;border:none;background:var(--dark-hover);color:var(--dark-text);cursor:pointer;font-weight:500;transition:all .2s;width:100%}button:hover{background:var(--accent);color:#fff}.small{font-size:12px;color:#aaa}#promotionOverlay{position:absolute;display:none;left:0;top:0;width:100%;height:100%;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:100}.promoBox{background:var(--dark-panel);padding:12px;border-radius:8px;display:flex;gap:8px;box-shadow:0 6px 20px rgba(0,0,0,.3);flex-wrap:wrap;width:130px}.promoBtn{width:56px;height:56px;cursor:pointer;border-radius:4px;border:2px solid var(--dark-border);background-size:cover;transition:all .2s}.promoBtn:hover{border-color:var(--accent);transform:scale(1.05)}#fenSection{margin-top:15px;padding-top:15px;border-top:1px solid var(--dark-border)}#fenInput{width:100%;box-sizing:border-box;padding:10px;font-family:monospace;font-size:11px;margin-bottom:8px;border:1px solid var(--dark-border);border-radius:4px;background:var(--dark-bg);color:var(--dark-text)}#btnLoadFEN{margin-top:0}#fenError{color:#e53935;margin-top:5px;display:none;font-size:11px}#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--dark-panel);padding:20px;border-radius:8px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.3);color:var(--dark-text)}#evalBarContainer{width:22px;height:640px;background:var(--eval-black);border-radius:3px;overflow:hidden;position:relative;margin-right:15px;display:block}#evalBar{position:absolute;width:100%;background:var(--eval-white);transition:all .3s ease}#evalScore{position:absolute;width:100%;text-align:center;top:50%;left:0;transform:translateY(-50%);color:var(--dark-bg);font-weight:600;font-size:12px;letter-spacing:.5px}#movelist{max-height:200px;overflow-y:auto;margin-top:5px;padding:8px;background:var(--dark-bg);border-radius:4px;border:1px solid var(--dark-border);font-family:monospace;font-size:11px;line-height:1.4;color:var(--dark-text)}#gamestate{margin-top:5px;padding:8px;background:var(--dark-bg);border-radius:4px;border:1px solid var(--dark-border);font-family:monospace;font-size:10px;line-height:1.4;max-height:150px;overflow-y:auto;white-space:pre-wrap;color:var(--dark-text)}h3{margin:0 0 10px 0;color:var(--dark-text)}.player-selector{display:flex;justify-content:space-between;margin-bottom:15px;padding:12px 16px;background:var(--dark-panel);border-radius:8px;border:1px solid var(--dark-border);align-items:center}.player-top{margin-bottom:10px}.player-bottom{margin-top:10px;justify-content:space-between}.player-section{display:flex;align-items:center;gap:12px}.player-color{width:24px;height:24px;border-radius:50%;display:inline-block}.player-color.white{background:linear-gradient(135deg,#f0d9b5,#b58863);box-shadow:0 2px 4px rgba(0,0,0,.3)}.player-color.black{background:linear-gradient(135deg,#b58863,#000);box-shadow:0 2px 4px rgba(0,0,0,.3)}.player-label{font-weight:600;min-width:60px}.player-type{padding:8px 12px;border-radius:6px;border:1px solid var(--dark-border);background:var(--dark-bg);color:var(--dark-text);font-weight:500;cursor:pointer;transition:all .2s;appearance:none;background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8e8e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");background-repeat:no-repeat;background-position:right 8px center;background-size:16px;padding-right:32px}.player-type:hover{background-color:var(--dark-hover)}.player-type:focus{outline:0;border-color:var(--accent)}.start-button{padding:8px 16px;margin-left:200px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,.2);white-space:nowrap}.start-button:hover{background:var(--accent-hover);transform:translateY(-1px)}.start-button:active{transform:translateY(0)}.board-container{position:relative}.tournament-mode{background:#1a1a1a!important;padding:20px!important;flex-direction:column!important;align-items:center!important;gap:30px!important;width:100%!important;max-width:100%!important;height:auto!important;border-radius:0!important;box-shadow:none!important}.tournament-header{width:100%;text-align:center;margin-bottom:20px;font-size:24px;font-weight:700;color:var(--dark-text)}.tournament-boards{display:grid;grid-template-columns:repeat(2,1fr);gap:30px;max-width:1400px;margin:0 auto}.tournament-board-container{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px}.tournament-canvas{width:320px;height:320px;background:#ddd;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.2)}.tournament-info{width:100%;text-align:center;font-size:14px;color:var(--dark-text)}.tournament-controls{position:fixed;bottom:20px;right:20px;display:flex;gap:10px;z-index:1000}.tournament-genome-controls{width:100%;max-width:600px;margin:20px auto;padding:15px;background:var(--dark-panel);border-radius:8px;border:1px solid var(--dark-border)}.genome-input-group{display:flex;justify-content:space-between;align-items:center;margin:10px 0;padding:8px;background:var(--dark-bg);border-radius:4px}.genome-input-group label{flex:1;font-weight:500}.genome-input-group input{width:80px;padding:6px;border:1px solid var(--dark-border);border-radius:4px;background:var(--dark-bg);color:var(--dark-text)}.genome-buttons{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap}.genome-buttons button{flex:1;min-width:120px;padding:8px 12px}.genome-status{margin-top:10px;padding:8px;border-radius:4px;font-size:12px;min-height:20px}.success{background:rgba(0,200,0,.2);color:#8f8}.error{background:rgba(200,0,0,.2);color:#f88}.hidden{display:none!important}</style><div id="loading">Loading piece images...</div><div id="game"style="display:none"><div id="debugPanel"style="width:320px;height:640px;margin-right:15px;overflow-y:auto;padding:10px;border-radius:4px;font-family:monospace;font-size:11px"><strong>Engine Reasoning</strong><div id="debugOutput"style="white-space:pre-wrap;margin-top:5px"></div></div><div id="evalBarContainer"><div id="evalBar"><div id="evalScore">0.00</div></div></div><div class="board-container"><div class="player-selector player-top"><div class="player-section"><span class="player-color black"></span> <span class="player-label">Black</span> <select class="player-type"id="blackPlayer"><option value="human">Human<option value="bot">Computer</select></div></div><canvas height="640"id="boardCanvas"width="640"></canvas><div id="promotionOverlay"></div><div class="player-selector player-bottom"><div class="player-section"><span class="player-color white"></span> <span class="player-label">White</span> <select class="player-type"id="whitePlayer"><option value="human">Human<option value="bot">Computer</select></div><button id="btnStart"class="start-button">Start Game</button></div></div><div id="controls"><h3>Chess Engine</h3><div class="small">Greedy algorithm - likes taking pieces</div><button id="btnReset">Reset Game</button> <button id="btnFlip">Flip Board</button> <button id="btnToggleEval">Toggle Eval Bar (E)</button> <button id="btnTournament">Tournament Mode</button><div id="fenSection"><strong>Load FEN Position</strong> <input id="fenInput"placeholder="Paste FEN string here..."> <button id="btnLoadFEN">Load FEN & Update Board</button><div id="fenError"class="small"></div></div><div style="margin-top:10px"><strong>Move list</strong><div id="movelist"class="small"></div></div><div style="margin-top:10px"><strong>Game state</strong><pre class="small"id="gamestate"></pre></div></div></div><script src="ai.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>KAISER</title>
+  <style>
+    :root {
+      --light: #f0d9b5;
+      --dark: #b58863;
+      --highlight: rgba(50, 200, 50, 0.45);
+      --capture: rgba(200, 50, 50, 0.45);
+      --dark-bg: #262421;
+      --dark-panel: #3c3835;
+      --dark-border: #3c3a37;
+      --dark-text: #e8e8e8;
+      --dark-hover: #4a4845;
+      --accent: #82b446;
+      --accent-hover: #739937;
+      --eval-white: #f0f0f0;
+      --eval-black: #3d3d3d;
+    }
+
+    html,
+    body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+        Arial;
+      background: var(--dark-bg);
+      color: var(--dark-text);
+    }
+
+    #game {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      background: var(--dark-panel);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    canvas {
+      background: #ddd;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    #controls {
+      width: 320px;
+    }
+
+    #debugPanel {
+      display: block;
+      background: var(--dark-panel);
+      border: 1px solid var(--dark-border);
+      color: var(--dark-text);
+    }
+
+    button {
+      display: block;
+      margin: 8px 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: none;
+      background: var(--dark-hover);
+      color: var(--dark-text);
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+      width: 100%;
+    }
+
+    button:hover {
+      background: var(--accent);
+      color: white;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #promotionOverlay {
+      position: absolute;
+      display: none;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 100;
+    }
+
+    .promoBox {
+      background: var(--dark-panel);
+      padding: 12px;
+      border-radius: 8px;
+      display: flex;
+      gap: 8px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      flex-wrap: wrap;
+      width: 130px;
+    }
+
+    .promoBtn {
+      width: 56px;
+      height: 56px;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 2px solid var(--dark-border);
+      background-size: cover;
+      transition: all 0.2s;
+    }
+
+    .promoBtn:hover {
+      border-color: var(--accent);
+      transform: scale(1.05);
+    }
+
+    #fenSection {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid var(--dark-border);
+    }
+
+    #fenInput {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      margin-bottom: 8px;
+      border: 1px solid var(--dark-border);
+      border-radius: 4px;
+      background: var(--dark-bg);
+      color: var(--dark-text);
+    }
+
+    #btnLoadFEN {
+      margin-top: 0;
+    }
+
+    #fenError {
+      color: #e53935;
+      margin-top: 5px;
+      display: none;
+      font-size: 11px;
+    }
+
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--dark-panel);
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      color: var(--dark-text);
+    }
+
+    /* --- Improved Evaluation Bar Styles --- */
+    #evalBarContainer {
+      width: 22px;
+      height: 640px;
+      background: var(--eval-black);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+      margin-right: 15px;
+      display: block;
+    }
+
+    #evalBar {
+      position: absolute;
+      width: 100%;
+      background: var(--eval-white);
+      transition: all 0.3s ease;
+    }
+
+    #evalScore {
+      position: absolute;
+      width: 100%;
+      text-align: center;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+      color: var(--dark-bg);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Game info styling */
+    #movelist {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 5px;
+      padding: 8px;
+      background: var(--dark-bg);
+      border-radius: 4px;
+      border: 1px solid var(--dark-border);
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--dark-text);
+    }
+
+    #gamestate {
+      margin-top: 5px;
+      padding: 8px;
+      background: var(--dark-bg);
+      border-radius: 4px;
+      border: 1px solid var(--dark-border);
+      font-family: monospace;
+      font-size: 10px;
+      line-height: 1.4;
+      max-height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: var(--dark-text);
+    }
+
+    h3 {
+      margin: 0 0 10px 0;
+      color: var(--dark-text);
+    }
+
+    /* Improved Player Selection Styles */
+    .player-selector {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 15px;
+      padding: 12px 16px;
+      background: var(--dark-panel);
+      border-radius: 8px;
+      border: 1px solid var(--dark-border);
+      align-items: center;
+    }
+
+    .player-top {
+      margin-bottom: 10px;
+    }
+
+    .player-bottom {
+      margin-top: 10px;
+      justify-content: space-between;
+    }
+
+    .player-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .player-color {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .player-color.white {
+      background: linear-gradient(135deg, #f0d9b5, #b58863);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .player-color.black {
+      background: linear-gradient(135deg, #b58863, #000);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .player-label {
+      font-weight: 600;
+      min-width: 60px;
+    }
+
+    .player-type {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--dark-border);
+      background: var(--dark-bg);
+      color: var(--dark-text);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8e8e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 16px;
+      padding-right: 32px;
+    }
+
+    .player-type:hover {
+      background-color: var(--dark-hover);
+    }
+
+    .player-type:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .start-button {
+      padding: 8px 16px;
+      margin-left: 200px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      white-space: nowrap;
+    }
+
+    .start-button:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .start-button:active {
+      transform: translateY(0);
+    }
+
+    .board-container {
+      position: relative;
+    }
+
+    /* Tournament mode styles */
+    .tournament-mode {
+      background: #1a1a1a !important;
+      padding: 20px !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 30px !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+
+    .tournament-header {
+      width: 100%;
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--dark-text);
+    }
+
+    .tournament-boards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 30px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .tournament-board-container {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .tournament-canvas {
+      width: 320px;
+      height: 320px;
+      background: #ddd;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .tournament-info {
+      width: 100%;
+      text-align: center;
+      font-size: 14px;
+      color: var(--dark-text);
+    }
+
+    .tournament-controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    .tournament-genome-controls {
+      width: 100%;
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 15px;
+      background: var(--dark-panel);
+      border-radius: 8px;
+      border: 1px solid var(--dark-border);
+    }
+
+    .genome-input-group {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 10px 0;
+      padding: 8px;
+      background: var(--dark-bg);
+      border-radius: 4px;
+    }
+
+    .genome-input-group label {
+      flex: 1;
+      font-weight: 500;
+    }
+
+    .genome-input-group input {
+      width: 80px;
+      padding: 6px;
+      border: 1px solid var(--dark-border);
+      border-radius: 4px;
+      background: var(--dark-bg);
+      color: var(--dark-text);
+    }
+
+    .genome-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+      flex-wrap: wrap;
+    }
+
+    .genome-buttons button {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px 12px;
+    }
+
+    .genome-status {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      min-height: 20px;
+    }
+    .player-item { 
+        display: flex; 
+        justify-content: space-between; 
+        padding: 8px; 
+        margin: 4px 0;
+        background: var(--dark-bg);
+        border-radius: 4px;
+        border: 1px solid var(--dark-border);
+    }
+
+    .player-item button {
+        padding: 4px 8px;
+        margin: 0;
+        width: auto;
+        font-size: 12px;
+    }
+    .success {
+      background: rgba(0, 200, 0, 0.2);
+      color: #8f8;
+    }
+
+    .error {
+      background: rgba(200, 0, 0, 0.2);
+      color: #f88;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="loading">Loading piece images...</div>
+
+  <div id="game" style="display: none">
+    <div id="debugPanel" style="
+          width: 320px;
+          height: 640px;
+          margin-right: 15px;
+          overflow-y: auto;
+          padding: 10px;
+          border-radius: 4px;
+          font-family: monospace;
+          font-size: 11px;
+        ">
+      <strong>Engine Reasoning</strong>
+      <div id="debugOutput" style="white-space: pre-wrap; margin-top: 5px"></div>
+    </div>
+    <!-- Eval bar moved to the left -->
+    <div id="evalBarContainer">
+      <div id="evalBar">
+        <div id="evalScore">0.00</div>
+      </div>
+    </div>
+
+    <div class="board-container">
+      <!-- Player selection at top (Black) -->
+      <div class="player-selector player-top">
+        <div class="player-section">
+          <span class="player-color black"></span>
+          <span class="player-label">Black</span>
+          <select id="blackPlayer" class="player-type">
+            <option value="human">Human</option>
+            <option value="bot">Computer</option>
+          </select>
+        </div>
+      </div>
+
+      <canvas id="boardCanvas" width="640" height="640"></canvas>
+      <div id="promotionOverlay"></div>
+
+      <!-- Player selection at bottom (White) with Start button -->
+      <div class="player-selector player-bottom">
+        <div class="player-section">
+          <span class="player-color white"></span>
+          <span class="player-label">White</span>
+          <select id="whitePlayer" class="player-type">
+            <option value="human">Human</option>
+            <option value="bot">Computer</option>
+          </select>
+        </div>
+        <button id="btnStart" class="start-button">Start Game</button>
+      </div>
+    </div>
+
+    <div id="controls">
+      <h3>Chess Engine</h3>
+      <div class="small">Greedy algorithm - likes taking pieces</div>
+      <button id="btnReset">Reset Game</button>
+      <button id="btnFlip">Flip Board</button>
+      <button id="btnToggleEval">Toggle Eval Bar (E)</button>
+      <button id="btnTournament">Tournament Mode</button>
+      <button id="btnMultiplayer" style="margin-top: 10px;">Multiplayer Mode</button>
+      <div id="fenSection">
+        <strong>Load FEN Position</strong>
+        <input type="text" id="fenInput" placeholder="Paste FEN string here..." />
+        <button id="btnLoadFEN">Load FEN & Update Board</button>
+        <div id="fenError" class="small"></div>
+      </div>
+      <div style="margin-top: 10px">
+        <strong>Move list</strong>
+        <div id="movelist" class="small"></div>
+      </div>
+      <div style="margin-top: 10px">
+        <strong>Game state</strong>
+        <pre id="gamestate" class="small"></pre>
+      </div>
+    </div>
+  </div>
+  <div id="multiplayerPanel" class="hidden" style="
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--dark-panel);
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 1000;
+      width: 500px;
+      max-width: 90vw;
+      max-height: 80vh;
+      overflow-y: auto;
+  ">
+      <h3>Multiplayer Chess</h3>
+      <div id="multiplayerStatus">Connecting...</div>
+
+      <!-- Pending Challenges Section -->
+      <div id="pendingChallengesSection" style="margin: 15px 0">
+          <h4>Pending Challenges</h4>
+          <div id="pendingChallengesList" style="max-height: 150px; overflow-y: auto; margin: 10px 0">
+              <div style="padding: 10px; text-align: center; color: #888;">No pending challenges</div>
+          </div>
+      </div>
+
+      <div id="onlinePlayersSection" style="margin: 15px 0">
+          <h4>Online Players</h4>
+          <div id="onlinePlayersList" style="max-height: 200px; overflow-y: auto; margin: 10px 0">
+              <div style="padding: 10px; text-align: center; color: #888;">Loading...</div>
+          </div>
+      </div>
+
+      <div id="activeGamesSection" style="margin: 15px 0">
+          <h4>Your Games</h4>
+          <div id="activeGamesList" style="margin: 10px 0">
+              <div style="padding: 10px; text-align: center; color: #888;">No active games</div>
+          </div>
+      </div>
+
+      <div id="challengeSection" style="margin: 15px 0">
+          <h4>Challenge Player</h4>
+          <div style="display: flex; gap: 10px; margin: 10px 0">
+              <input type="text" id="challengeUsername" placeholder="Enter username" style="flex: 1; padding: 8px; border: 1px solid var(--dark-border); border-radius: 4px; background: var(--dark-bg); color: var(--dark-text);" />
+              <button id="btnSendChallenge" style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer;">Challenge</button>
+          </div>
+      </div>
+
+      <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="btnDisconnect" style="padding: 8px 16px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">Disconnect</button>
+          <button id="btnCloseMultiplayer" style="padding: 8px 16px; background: var(--dark-hover); color: var(--dark-text); border: none; border-radius: 4px; cursor: pointer;">Close</button>
+      </div>
+  </div>
+  <script src="ai.js"></script>
+</body>
+
+</html>
