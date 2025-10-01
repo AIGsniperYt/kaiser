@@ -1,4 +1,5 @@
 /*
+  AIGsniper copyright © 2025 - all rights reserved
   ChessEngine class refactor — multi-instance ready for evolution/GA.
   - Encapsulates state, move gen, evaluation, and search.
   - UI below binds a single instance (mainEngine) to your existing canvas/controls.
@@ -1263,18 +1264,19 @@ function showPromotionOverlay(move) {
   overlay.appendChild(box);
 }
 
-// Input handling
+// Input handling - UPDATED for multiplayer
 canvas.addEventListener("click", (e) => {
-  if (!gameStarted) return;
-  
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const c = Math.floor(x / sq),
-    r = Math.floor(y / sq);
-  const logicalC = mainEngine.flipBoard ? 7 - c : c;
-  const logicalR = mainEngine.flipBoard ? 7 - r : r;
-  onSquareClick(logicalR, logicalC);
+    if (!gameStarted) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const c = Math.floor(x / sq),
+        r = Math.floor(y / sq);
+    const logicalC = mainEngine.flipBoard ? 7 - c : c;
+    const logicalR = mainEngine.flipBoard ? 7 - r : r;
+    
+    onSquareClick(logicalR, logicalC);
 });
 
 function onSquareClick(r, c) {
@@ -2086,30 +2088,30 @@ class ChessMultiplayer {
         this.serverUrl = 'https://multiplayer-6vlc.onrender.com';
         this.isConnected = false;
         this.currentGame = null;
-        this.pendingChallenges = []; // Store pending challenges
+        this.pendingChallenges = [];
         this.pollingInterval = null;
+        this.isChallenger = false;
+        this.selectedColor = null;
+        this.ourColor = null; // Track our color
+        this.gameStarted = false; // Track if multiplayer game has started
         
         this.initializeMultiplayerUI();
     }
 
     initializeMultiplayerUI() {
-        // Event listeners
         document.getElementById('btnMultiplayer').addEventListener('click', () => {
             this.toggleMultiplayerPanel();
         });
 
-        // Add challenge button listener
         document.getElementById('btnSendChallenge').addEventListener('click', () => {
             const username = document.getElementById('challengeUsername').value;
             this.sendChallenge(username);
         });
 
-        // Add close panel listener
         document.getElementById('btnCloseMultiplayer').addEventListener('click', () => {
             this.hideMultiplayerPanel();
         });
 
-        // Add disconnect listener
         document.getElementById('btnDisconnect').addEventListener('click', () => {
             this.disconnect();
         });
@@ -2122,7 +2124,7 @@ class ChessMultiplayer {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     username: this.username,
-                    isChessClient: true  // Add this flag
+                    isChessClient: true
                 })
             });
             
@@ -2133,14 +2135,11 @@ class ChessMultiplayer {
                 this.startPolling();
                 this.updateUI();
                 this.updateStatus('Connected to multiplayer server');
-                
-                // Fetch and display online players immediately after connecting
                 this.updateOnlinePlayers();
-                
             } else if (data.isPending) {
-                this.clientId = data.clientId; // Store pending client ID
+                this.clientId = data.clientId;
                 this.updateStatus('Waiting for moderator approval...');
-                this.startPolling(); // Start polling even when pending
+                this.startPolling();
             } else {
                 this.updateStatus('Failed to connect: ' + data.error);
             }
@@ -2167,9 +2166,7 @@ class ChessMultiplayer {
             const response = await fetch(`${this.serverUrl}/api/get-updates`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    clientId: this.clientId
-                })
+                body: JSON.stringify({ clientId: this.clientId })
             });
             
             const data = await response.json();
@@ -2188,6 +2185,9 @@ class ChessMultiplayer {
                 case 'chess_invitation':
                     this.handleChessInvitation(event.data);
                     break;
+                case 'chess_game_ready':
+                    this.handleGameReady(event.data);
+                    break;
                 case 'chess_game_started':
                     this.handleGameStarted(event.data);
                     break;
@@ -2203,29 +2203,25 @@ class ChessMultiplayer {
                 case 'join_rejected':
                     this.handleJoinRejected(event.data);
                     break;
+                case 'color_selected':
+                    this.handleColorSelection(event.data);
+                    break;
+                case 'chess_game_cancelled':
+                    this.handleGameCancelled(event.data);
+                    break;
+                case 'kicked':
+                    this.handleKicked(event.data);
+                    break;
+                case 'server_deactivated':
+                    this.handleServerDeactivated(event.data);
+                    break;
             }
         });
-    }
-
-    handleJoinApproved(data) {
-        // Update clientId with the new approved ID
-        this.clientId = data.clientId;
-        this.username = data.username;
-        this.isConnected = true;
-        this.updateStatus(`Approved! Connected as ${this.username}`);
-        this.updateUI();
-        this.updateOnlinePlayers();
-    }
-
-    handleJoinRejected(data) {
-        this.updateStatus(`Join rejected: ${data.reason}`);
-        this.disconnect();
     }
 
     handleChessInvitation(data) {
         console.log('Received chess invitation:', data);
         
-        // Add to pending challenges
         this.pendingChallenges.push({
             gameId: data.gameId,
             challenger: data.challenger,
@@ -2234,13 +2230,10 @@ class ChessMultiplayer {
         });
         
         this.updateChallengesList();
-        
-        // Show notification
         this.showChallengeNotification(data.challenger, data.gameId);
     }
 
     showChallengeNotification(challenger, gameId) {
-        // Create a notification element
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;
@@ -2271,7 +2264,6 @@ class ChessMultiplayer {
         
         document.body.appendChild(notification);
         
-        // Auto-remove after 30 seconds
         setTimeout(() => {
             if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
@@ -2293,11 +2285,10 @@ class ChessMultiplayer {
             const data = await response.json();
             if (data.success) {
                 this.currentGame = data.gameState;
+                this.isChallenger = false;
                 this.removeChallenge(gameId);
-                this.setupMultiplayerGame();
-                this.updateStatus(`Accepted challenge from ${data.gameState.whiteName}`);
-                
-                // Remove any challenge notifications
+                this.showGameSetupPanel();
+                this.updateStatus(`Accepted challenge from ${data.gameState.challengerName}`);
                 this.removeChallengeNotifications();
             } else {
                 this.updateStatus('Failed to accept challenge: ' + data.error);
@@ -2309,7 +2300,6 @@ class ChessMultiplayer {
     }
 
     async declineChallenge(gameId) {
-        // Remove from pending challenges
         this.removeChallenge(gameId);
         this.removeChallengeNotifications();
         this.updateStatus('Challenge declined');
@@ -2321,7 +2311,6 @@ class ChessMultiplayer {
     }
 
     removeChallengeNotifications() {
-        // Remove all challenge notification elements
         const notifications = document.querySelectorAll('div');
         notifications.forEach(div => {
             if (div.innerHTML.includes('Chess Challenge!')) {
@@ -2364,47 +2353,6 @@ class ChessMultiplayer {
         });
     }
 
-    handleGameStarted(data) {
-        this.currentGame = data.gameState;
-        this.setupMultiplayerGame();
-    }
-
-    handleOpponentMove(data) {
-        if (this.currentGame && this.currentGame.id === data.gameId) {
-            // Apply the move to our board
-            this.engine.makeMove(data.move);
-            render();
-            updateEvalBar();
-            refreshPanels();
-        }
-    }
-
-    setupMultiplayerGame() {
-        // Reset the board to the game state
-        try {
-            this.engine.state = this.engine.parseFEN(this.currentGame.fen);
-            this.engine.moveHistory = [];
-            
-            // Determine if we're white or black
-            const isWhite = this.currentGame.playerWhite === this.clientId;
-            this.engine.flipBoard = !isWhite; // Flip board if we're black
-            
-            render();
-            updateEvalBar();
-            refreshPanels();
-            
-            // Update status
-            const opponentName = isWhite ? this.currentGame.blackName : this.currentGame.whiteName;
-            this.updateStatus(`Playing vs ${opponentName} (${isWhite ? 'White' : 'Black'})`);
-            
-            // Hide multiplayer panel during game
-            this.hideMultiplayerPanel();
-        } catch (error) {
-            console.error('Error setting up multiplayer game:', error);
-            this.updateStatus('Error setting up game');
-        }
-    }
-
     async sendChallenge(username) {
         if (!username || !this.clientId) {
             alert('Please connect to the server first');
@@ -2412,7 +2360,6 @@ class ChessMultiplayer {
         }
         
         try {
-            // First get online users to find the target
             const response = await fetch(`${this.serverUrl}/api/active-users`);
             const data = await response.json();
             
@@ -2437,36 +2384,435 @@ class ChessMultiplayer {
                 })
             });
             
+            if (!challengeResponse.ok) {
+                throw new Error(`Server error: ${challengeResponse.status}`);
+            }
+            
             const challengeData = await challengeResponse.json();
             if (challengeData.success) {
                 this.currentGame = challengeData.gameState;
-                this.updateStatus(`Challenge sent to ${username}`);
+                this.isChallenger = true;
+                this.updateStatus(`Challenge sent to ${username} - waiting for acceptance`);
+                this.showGameSetupPanel();
             } else {
                 this.updateStatus('Failed to send challenge: ' + challengeData.error);
             }
         } catch (error) {
             console.error('Failed to send challenge:', error);
-            this.updateStatus('Error sending challenge');
+            this.updateStatus('Error sending challenge: ' + error.message);
         }
     }
 
-    async makeMove(move) {
-        if (!this.currentGame || !this.clientId) return;
+    showGameSetupPanel() {
+        this.hideMultiplayerPanel();
+        
+        const setupHTML = `
+            <div id="gameSetupPanel" style="
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: var(--dark-panel);
+                padding: 20px;
+                border-radius: 10px;
+                z-index: 1000;
+                width: 400px;
+                text-align: center;
+            ">
+                <h3>Game Setup</h3>
+                <div id="setupStatus">Waiting for opponent to accept...</div>
+                <div style="margin: 20px 0; display: ${this.isChallenger ? 'block' : 'none'};" id="colorSelectionSection">
+                    <h4>Choose Your Color</h4>
+                    <div style="display: flex; justify-content: center; gap: 20px; margin: 15px 0;">
+                        <button id="btnSelectWhite" class="color-btn" style="
+                            padding: 10px 20px;
+                            background: #f0d9b5;
+                            color: #000;
+                            border: 2px solid #b58863;
+                            border-radius: 5px;
+                            cursor: pointer;
+                        ">Play as White</button>
+                        <button id="btnSelectBlack" class="color-btn" style="
+                            padding: 10px 20px;
+                            background: #b58863;
+                            color: #fff;
+                            border: 2px solid #000;
+                            border-radius: 5px;
+                            cursor: pointer;
+                        ">Play as Black</button>
+                    </div>
+                </div>
+                <div id="startGameSection" style="display: none;">
+                    <button id="btnStartMultiplayerGame" style="
+                        padding: 10px 20px;
+                        background: var(--accent);
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        margin: 10px 0;
+                    ">Start Game</button>
+                </div>
+                <button id="btnCancelSetup" style="
+                    padding: 8px 16px;
+                    background: #666;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                ">Cancel</button>
+            </div>
+        `;
+        
+        const existingPanel = document.getElementById('gameSetupPanel');
+        if (existingPanel) existingPanel.remove();
+        
+        document.body.insertAdjacentHTML('beforeend', setupHTML);
+        
+        document.getElementById('btnSelectWhite')?.addEventListener('click', () => {
+            this.selectColor('white');
+        });
+        
+        document.getElementById('btnSelectBlack')?.addEventListener('click', () => {
+            this.selectColor('black');
+        });
+        
+        document.getElementById('btnStartMultiplayerGame').addEventListener('click', () => {
+            this.startMultiplayerGame();
+        });
+        
+        document.getElementById('btnCancelSetup').addEventListener('click', () => {
+            this.cancelGameSetup();
+        });
+    }
+
+    async selectColor(color) {
+        this.selectedColor = color;
+        
+        document.querySelectorAll('.color-btn').forEach(btn => {
+            btn.style.border = '2px solid #666';
+        });
+        document.getElementById(`btnSelect${color.charAt(0).toUpperCase() + color.slice(1)}`)
+            .style.border = '2px solid var(--accent)';
+        
+        document.getElementById('startGameSection').style.display = 'block';
+        document.getElementById('setupStatus').textContent = `You selected ${color}. Ready to start!`;
         
         try {
-            await fetch(`${this.serverUrl}/api/chess-move`, {
+            await fetch(`${this.serverUrl}/api/chess-color-select`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     clientId: this.clientId,
                     gameId: this.currentGame.id,
-                    move: move
+                    color: color
                 })
             });
         } catch (error) {
-            console.error('Failed to send move:', error);
+            console.error('Failed to send color selection:', error);
         }
     }
+
+    handleColorSelection(data) {
+        if (this.currentGame && this.currentGame.id === data.gameId) {
+            document.getElementById('setupStatus').textContent = 
+                `Opponent selected ${data.color}. You will play as ${data.color === 'white' ? 'black' : 'white'}.`;
+            
+            if (!this.isChallenger) {
+                document.getElementById('startGameSection').style.display = 'none';
+                this.selectedColor = data.color === 'white' ? 'black' : 'white';
+            }
+        }
+    }
+
+    async startMultiplayerGame() {
+        if (!this.currentGame || !this.selectedColor) {
+            alert('Please select a color first');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${this.serverUrl}/api/start-chess-game`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientId: this.clientId,
+                    gameId: this.currentGame.id,
+                    challengerColor: this.selectedColor
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                this.currentGame = data.gameState;
+                this.setupMultiplayerGame();
+                this.removeGameSetupPanel();
+            } else {
+                alert('Failed to start game: ' + data.error);
+            }
+        } catch (error) {
+            console.error('Failed to start game:', error);
+            alert('Error starting game');
+        }
+    }
+
+    handleGameReady(data) {
+        if (data.gameState && data.gameState.id === this.currentGame?.id) {
+            this.currentGame = data.gameState;
+            
+            if (!this.isChallenger) {
+                document.getElementById('setupStatus').textContent = 
+                    `Challenge accepted! Waiting for ${data.gameState.challengerName} to choose color...`;
+                document.getElementById('startGameSection').style.display = 'none';
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+            }
+        }
+    }
+
+    handleGameStarted(data) {
+        if (data.gameState && (!this.currentGame || this.currentGame.id !== data.gameState.id)) {
+            this.currentGame = data.gameState;
+        }
+        
+        this.setupMultiplayerGame();
+        this.removeGameSetupPanel();
+    }
+
+    setupMultiplayerGame() {
+        if (!this.currentGame) return;
+        
+        try {
+            // Determine our color
+            this.ourColor = this.currentGame.playerWhite === this.clientId ? 'white' : 'black';
+            const opponentName = this.ourColor === 'white' ? this.currentGame.blackName : this.currentGame.whiteName;
+            
+            this.updateGameUIForMultiplayer(this.ourColor, opponentName);
+            
+            // Reset the engine with the game's FEN position
+            this.engine.state = this.engine.parseFEN(this.currentGame.fen || START_FEN);
+            this.engine.moveHistory = [];
+            this.engine.positionHistory = [this.engine.positionKey(this.engine.state)];
+            this.engine.selected = null;
+            this.engine.legalTargets = [];
+            
+            // Set board orientation - player should see from their perspective
+            this.engine.flipBoard = this.ourColor === 'black';
+            
+            // Mark multiplayer game as started
+            this.gameStarted = true;
+            gameStarted = true; // Global game started flag
+            
+            // Disable player selection controls
+            document.getElementById('whitePlayer').disabled = true;
+            document.getElementById('blackPlayer').disabled = true;
+            document.getElementById('btnStart').style.display = 'none';
+            
+            render();
+            updateEvalBar();
+            refreshPanels();
+            
+            this.updateStatus(`Playing vs ${opponentName} (you are ${this.ourColor}) - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
+            
+        } catch (error) {
+            console.error('Error setting up multiplayer game:', error);
+            this.updateStatus('Error setting up game');
+        }
+    }
+
+    updateGameUIForMultiplayer(ourColor, opponentName) {
+        const whiteLabel = document.querySelector('.player-top .player-label');
+        const blackLabel = document.querySelector('.player-bottom .player-label');
+        
+        if (ourColor === 'white') {
+            whiteLabel.textContent = 'You (White)';
+            blackLabel.textContent = `${opponentName} (Black)`;
+        } else {
+            whiteLabel.textContent = `${opponentName} (White)`;
+            blackLabel.textContent = 'You (Black)';
+        }
+        
+        document.getElementById('btnStart').style.display = 'none';
+    }
+
+    removeGameSetupPanel() {
+        const panel = document.getElementById('gameSetupPanel');
+        if (panel) panel.remove();
+    }
+
+    cancelGameSetup() {
+        if (this.currentGame) {
+            fetch(`${this.serverUrl}/api/cancel-chess-game`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientId: this.clientId,
+                    gameId: this.currentGame.id
+                })
+            }).catch(console.error);
+            
+            this.currentGame = null;
+            this.isChallenger = false;
+            this.selectedColor = null;
+            this.ourColor = null;
+            this.gameStarted = false;
+        }
+        this.removeGameSetupPanel();
+        this.updateStatus('Game setup cancelled');
+    }
+
+    handleGameCancelled(data) {
+        this.currentGame = null;
+        this.isChallenger = false;
+        this.selectedColor = null;
+        this.ourColor = null;
+        this.gameStarted = false;
+        this.removeGameSetupPanel();
+        this.updateStatus('Game was cancelled by the other player');
+        
+        // Re-enable controls
+        document.getElementById('whitePlayer').disabled = false;
+        document.getElementById('blackPlayer').disabled = false;
+        document.getElementById('btnStart').style.display = 'block';
+    }
+
+    handleKicked(data) {
+        this.disconnect();
+        alert('You have been kicked from the server');
+    }
+
+    handleServerDeactivated(data) {
+        this.disconnect();
+        alert('Server has been deactivated. Please try again later.');
+    }
+
+    handleOpponentMove(data) {
+        if (this.currentGame && this.currentGame.id === data.gameId) {
+            console.log('Processing opponent move:', data.move);
+            
+            // Update the game state
+            this.currentGame = data.gameState;
+            
+            // Apply the move to our local engine
+            this.engine.makeMove(data.move);
+            
+            // Update the board
+            render();
+            updateEvalBar();
+            refreshPanels();
+            
+            this.updateStatus(`Opponent moved - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
+        }
+    }
+
+    handleJoinApproved(data) {
+        this.clientId = data.clientId;
+        this.username = data.username;
+        this.isConnected = true;
+        this.updateStatus(`Approved! Connected as ${this.username}`);
+        this.updateUI();
+        this.updateOnlinePlayers();
+    }
+
+    handleJoinRejected(data) {
+        this.updateStatus(`Join rejected: ${data.reason}`);
+        this.disconnect();
+    }
+
+    // FIXED: Proper move validation and sending
+    async makeMove(move) {
+        console.log('makeMove called:', { 
+            currentGame: !!this.currentGame, 
+            clientId: !!this.clientId, 
+            gameStarted: this.gameStarted,
+            move: move 
+        });
+        
+        if (!this.currentGame || !this.clientId || !this.gameStarted) {
+            console.log('Cannot make move: game not ready');
+            this.updateStatus('Game not ready');
+            return false;
+        }
+        
+        // FIX: Use the ORIGINAL engine state (before any local moves) for validation
+        const currentTurn = this.engine.state.activeColor; // This should still be our turn
+        const isOurTurn = (currentTurn === 'w' && this.ourColor === 'white') || 
+                        (currentTurn === 'b' && this.ourColor === 'black');
+        
+        console.log('Turn validation (ORIGINAL STATE):', {
+            engineTurn: currentTurn,
+            ourColor: this.ourColor,
+            isOurTurn: isOurTurn
+        });
+        
+        // Validate it's our turn using local engine state
+        if (!isOurTurn) {
+            console.log('Not your turn!');
+            this.updateStatus('Not your turn! Wait for opponent.');
+            return false;
+        }
+        
+        // Validate we're moving our own pieces
+        const piece = this.engine.state.board[move.from[0]][move.from[1]];
+        if (!piece) {
+            console.log('No piece at selected square');
+            this.updateStatus('Invalid move - no piece selected');
+            return false;
+        }
+        
+        const pieceColor = piece === piece.toUpperCase() ? 'white' : 'black';
+        if (pieceColor !== this.ourColor) {
+            console.log('Cannot move opponent pieces!');
+            this.updateStatus('Cannot move opponent pieces!');
+            return false;
+        }
+        
+        try {
+          console.log('Sending move to server...');
+          
+          // ADD TIMEOUT HANDLING
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
+          const response = await fetch(`${this.serverUrl}/api/chess-move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              clientId: this.clientId,
+              gameId: this.currentGame.id,
+              move: move
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          const data = await response.json();
+          console.log('Server response:', data);
+          
+          if (data.success) {
+            this.currentGame = data.gameState;
+            this.updateStatus(`Move sent - waiting for opponent...`);
+            return true;
+          } else {
+            this.updateStatus('Move failed: ' + data.error);
+            return false;
+          }
+        } catch (error) {
+          console.error('Failed to send move:', error);
+          
+          // SPECIFIC TIMEOUT HANDLING
+          if (error.name === 'AbortError') {
+            this.updateStatus('Move timeout - server not responding');
+            console.error('Server timeout - attempting reconnection...');
+            // Optional: Implement reconnection logic here
+          } else {
+            this.updateStatus('Error sending move: ' + error.message);
+          }
+          return false;
+        }
+      }
 
     async updateOnlinePlayers(users = null) {
         const playersList = document.getElementById('onlinePlayersList');
@@ -2474,7 +2820,6 @@ class ChessMultiplayer {
         
         playersList.innerHTML = '';
         
-        // If no users provided, fetch them from the server
         if (!users) {
             try {
                 const response = await fetch(`${this.serverUrl}/api/active-users`);
@@ -2486,7 +2831,6 @@ class ChessMultiplayer {
             }
         }
         
-        // Filter out ourselves and show other players
         const otherPlayers = users.filter(user => user.clientId !== this.clientId);
         
         if (otherPlayers.length === 0) {
@@ -2525,6 +2869,40 @@ class ChessMultiplayer {
         }
     }
 
+    // Add this function to ai.js in the ChessMultiplayer class
+    getCurrentTurnFromFEN(fen) {
+        if (!fen) return 'w'; // Default to white if no FEN
+        const parts = fen.split(' ');
+        return parts.length > 1 ? parts[1] : 'w';
+    }
+
+    // Update the isOurTurn method to use FEN consistently:
+    isOurTurn() {
+        if (!this.currentGame || !this.ourColor) {
+            console.log('Turn check failed: no game or color');
+            return false;
+        }
+        
+        try {
+            // Use FEN for turn detection (most reliable)
+            const currentTurn = this.getCurrentTurnFromFEN(this.currentGame.fen);
+            const isOurTurn = (currentTurn === 'w' && this.ourColor === 'white') || 
+                            (currentTurn === 'b' && this.ourColor === 'black');
+            
+            console.log('Turn check (FEN-based):', {
+                fen: this.currentGame.fen,
+                currentTurn: currentTurn,
+                ourColor: this.ourColor,
+                isOurTurn: isOurTurn
+            });
+            
+            return isOurTurn;
+        } catch (error) {
+            console.error('Error detecting turn:', error);
+            return false;
+        }
+    }
+    
     toggleMultiplayerPanel() {
         const panel = document.getElementById('multiplayerPanel');
         if (panel) {
@@ -2536,8 +2914,47 @@ class ChessMultiplayer {
                 } else {
                     this.updateOnlinePlayers();
                     this.updateChallengesList();
+                    this.updateActiveGames();
                 }
             }
+        }
+    }
+
+    updateActiveGames() {
+        const gamesList = document.getElementById('activeGamesList');
+        if (!gamesList) return;
+        
+        gamesList.innerHTML = '';
+        
+        if (!this.currentGame) {
+            gamesList.innerHTML = '<div style="padding: 10px; text-align: center; color: #888;">No active games</div>';
+            return;
+        }
+        
+        const opponentName = this.ourColor === 'white' ? this.currentGame.blackName : this.currentGame.whiteName;
+        const isOurTurn = this.isOurTurn();
+        
+        const gameElement = document.createElement('div');
+        gameElement.className = 'player-item';
+        gameElement.innerHTML = `
+            <div>
+                <strong>vs ${opponentName}</strong>
+                <div style="font-size: 12px; color: #888;">
+                    You are ${this.ourColor} • ${isOurTurn ? 'Your turn' : 'Opponent\'s turn'}
+                </div>
+            </div>
+            <button onclick="chessMultiplayer.resumeGame()" 
+                    style="padding: 4px 8px; background: var(--accent); border: none; border-radius: 4px; cursor: pointer;">
+                Resume
+            </button>
+        `;
+        gamesList.appendChild(gameElement);
+    }
+
+    resumeGame() {
+        if (this.currentGame) {
+            this.setupMultiplayerGame();
+            this.hideMultiplayerPanel();
         }
     }
 
@@ -2553,27 +2970,178 @@ class ChessMultiplayer {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
         }
+        
+        if (this.clientId) {
+            fetch(`${this.serverUrl}/api/leave`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: this.clientId })
+            }).catch(console.error);
+        }
+        
         this.isConnected = false;
         this.clientId = null;
         this.currentGame = null;
         this.pendingChallenges = [];
+        this.isChallenger = false;
+        this.selectedColor = null;
+        this.ourColor = null;
+        this.gameStarted = false;
         this.updateStatus('Disconnected');
+        
+        this.removeGameSetupPanel();
+        
+        // Re-enable controls
+        document.getElementById('whitePlayer').disabled = false;
+        document.getElementById('blackPlayer').disabled = false;
+        document.getElementById('btnStart').style.display = 'block';
     }
 }
+
+// FIXED: Override the square click handler for multiplayer
+function createMultiplayerSquareClickHandler() {
+    const originalOnSquareClick = onSquareClick;
+    
+    return function(r, c) {
+        // If we're in a multiplayer game, use multiplayer logic
+        if (chessMultiplayer && chessMultiplayer.gameStarted) {
+            handleMultiplayerSquareClick(r, c);
+        } else {
+            // Otherwise use original single-player logic
+            originalOnSquareClick(r, c);
+        }
+    };
+}
+
+// FIXED: Multiplayer-specific square click handler
+function handleMultiplayerSquareClick(r, c) {
+    console.log('Multiplayer square click:', {r, c, ourColor: chessMultiplayer.ourColor, ourTurn: chessMultiplayer.isOurTurn()});
+    
+    if (!chessMultiplayer.isOurTurn()) {
+        chessMultiplayer.updateStatus('Not your turn! Wait for opponent.');
+        return;
+    }
+    
+    const p = mainEngine.state.board[r][c];
+    console.log('Piece at square:', p);
+    
+    if (mainEngine.selected) {
+        const match = mainEngine.legalTargets.find(
+            t => t.to[0] === r && t.to[1] === c
+        );
+        
+        if (match) {
+            console.log('Move match found:', match);
+            
+            // Validate we're moving our own piece
+            const selectedPiece = mainEngine.state.board[mainEngine.selected[0]][mainEngine.selected[1]];
+            if (!selectedPiece) {
+                console.log('No piece at selected square - clearing selection');
+                mainEngine.selected = null;
+                mainEngine.legalTargets = [];
+                render();
+                return;
+            }
+            
+            const selectedPieceColor = selectedPiece === selectedPiece.toUpperCase() ? 'white' : 'black';
+            
+            if (selectedPieceColor !== chessMultiplayer.ourColor) {
+                chessMultiplayer.updateStatus('Cannot move opponent pieces!');
+                mainEngine.selected = null;
+                mainEngine.legalTargets = [];
+                render();
+                return;
+            }
+
+            // DOUBLE-CHECK: It's still our turn before proceeding
+            if (!chessMultiplayer.isOurTurn()) {
+                chessMultiplayer.updateStatus('Turn ended while selecting move!');
+                mainEngine.selected = null;
+                mainEngine.legalTargets = [];
+                render();
+                return;
+            }
+            
+            if (match.promotion) {
+                console.log('Showing promotion overlay');
+                showPromotionOverlay(match);
+                return;
+            }
+
+            // Send move to server FIRST, before making local move
+            console.log('Sending move to server');
+            chessMultiplayer.makeMove(match).then(success => {
+                if (success) {
+                    // Only make local move if server accepted it
+                    console.log('Server accepted move, applying locally');
+                    const moveCopy = deepClone(match);
+                    mainEngine.makeMove(moveCopy);
+                    mainEngine.selected = null;
+                    mainEngine.legalTargets = [];
+
+                    // Render after successful server response
+                    render();
+                    updateEvalBar();
+                    refreshPanels();
+
+                    chessMultiplayer.updateStatus('Move sent - waiting for opponent...');
+                } else {
+                    chessMultiplayer.updateStatus('Failed to send move - try again');
+                    // Don't make local move if server rejected it
+                }
+            });
+            return;
+        }
+
+        // If clicking on another piece of ours, change selection
+        if (p) {
+            const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
+            
+            // Only allow selecting our own pieces
+            if (pieceColor === chessMultiplayer.ourColor) {
+                mainEngine.selected = [r, c];
+                mainEngine.legalTargets = mainEngine
+                    .generateLegalMoves(mainEngine.state)
+                    .filter(m => m.from[0] === r && m.from[1] === c);
+                render();
+            } else {
+                chessMultiplayer.updateStatus('Cannot select opponent pieces!');
+                mainEngine.selected = null;
+                mainEngine.legalTargets = [];
+                render();
+            }
+        } else {
+            // Clicked on empty square - clear selection
+            mainEngine.selected = null;
+            mainEngine.legalTargets = [];
+            render();
+        }
+    } else {
+        // No current selection - try to select a piece
+        if (p) {
+            const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
+            
+            // Only allow selecting our own pieces
+            if (pieceColor === chessMultiplayer.ourColor) {
+                mainEngine.selected = [r, c];
+                mainEngine.legalTargets = mainEngine
+                    .generateLegalMoves(mainEngine.state)
+                    .filter(m => m.from[0] === r && m.from[1] === c);
+                render();
+                console.log('Selected piece, legal moves:', mainEngine.legalTargets.length);
+            } else {
+                chessMultiplayer.updateStatus('Cannot select opponent pieces!');
+            }
+        } else {
+            chessMultiplayer.updateStatus('No piece at this square');
+        }
+    }
+}
+
 // Initialize multiplayer when the page loads
 document.addEventListener('DOMContentLoaded', () => {
     chessMultiplayer = new ChessMultiplayer(mainEngine);
     
-    // Override the makeMove function to also send moves to server in multiplayer
-    const originalMakeMove = mainEngine.makeMove;
-    mainEngine.makeMove = function(move) {
-        const result = originalMakeMove.call(this, move);
-        
-        // If we're in a multiplayer game, send the move to server
-        if (chessMultiplayer.currentGame) {
-            chessMultiplayer.makeMove(move);
-        }
-        
-        return result;
-    };
+    // Override the square click handler
+    onSquareClick = createMultiplayerSquareClickHandler();
 });
