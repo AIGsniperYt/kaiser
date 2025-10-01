@@ -2094,10 +2094,35 @@ class ChessMultiplayer {
         this.selectedColor = null;
         this.ourColor = null; // Track our color
         this.gameStarted = false; // Track if multiplayer game has started
-        
+        this.lastResponseTime = Date.now();
+        this.connectionHealthy = true;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 3;
+        this.pendingRequests = new Map();
+        this.isPolling = false;
+
         this.initializeMultiplayerUI();
     }
-
+    checkConnectionHealth() {
+        const timeSinceLastResponse = Date.now() - this.lastResponseTime;
+        
+        if (timeSinceLastResponse > 60000 && this.connectionHealthy) {
+            this.connectionHealthy = false;
+            this.updateStatus('Connection unstable - attempting to recover...');
+            
+            // Only attempt reconnect if we haven't exceeded max attempts
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                this.reconnectAttempts++;
+                this.reconnect();
+            } else {
+                this.updateStatus('Max reconnection attempts reached. Please refresh the page.');
+            }
+        } else if (timeSinceLastResponse < 30000 && !this.connectionHealthy) {
+            this.connectionHealthy = true;
+            this.reconnectAttempts = 0; // Reset counter on successful recovery
+            this.updateStatus('Connection restored');
+        }
+    }
     initializeMultiplayerUI() {
         document.getElementById('btnMultiplayer').addEventListener('click', () => {
             this.toggleMultiplayerPanel();
@@ -2127,7 +2152,7 @@ class ChessMultiplayer {
                     isChessClient: true
                 })
             });
-            
+            this.lastResponseTime = Date.now(); // ← UPDATE THIS
             const data = await response.json();
             if (data.success) {
                 this.clientId = data.clientId;
@@ -2148,7 +2173,30 @@ class ChessMultiplayer {
             this.updateStatus('Connection failed - server may be offline');
         }
     }
-
+    async reconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            this.updateStatus('Maximum reconnection attempts reached. Please refresh the page.');
+            return false;
+        }
+        
+        this.updateStatus(`Attempting to reconnect... (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+        this.disconnect();
+        
+        // Wait with exponential backoff
+        const backoffDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+        
+        try {
+            await this.connect();
+            this.updateStatus('Reconnected successfully');
+            this.reconnectAttempts = 0;
+            return true;
+        } catch (error) {
+            console.error('Reconnection failed:', error);
+            this.updateStatus(`Reconnection failed. Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+            return false;
+        }
+    }
     startPolling() {
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
@@ -2156,29 +2204,66 @@ class ChessMultiplayer {
         
         this.pollingInterval = setInterval(async () => {
             await this.checkForUpdates();
-        }, 2000);
+        }, 3000); // Increased from 2000 to 3000ms
+        
+        // Make heartbeat much more tolerant
+        this.heartbeatInterval = setInterval(() => {
+            if (this.isConnected && Date.now() - this.lastResponseTime > 60000) { // 60 seconds timeout
+                console.log('No server response for 60s - checking connection');
+                this.checkConnectionHealth();
+            }
+        }, 15000); // Check every 15 seconds instead of 10
     }
 
     async checkForUpdates() {
-        if (!this.clientId) return;
+        if (!this.clientId || this.isPolling) {
+            return; // Skip if already polling or no client ID
+        }
+        
+        this.isPolling = true;
         
         try {
+            const requestKey = `update-${Date.now()}`;
+            this.pendingRequests.set(requestKey, true);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
             const response = await fetch(`${this.serverUrl}/api/get-updates`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId: this.clientId })
+                body: JSON.stringify({ clientId: this.clientId }),
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
+            this.lastResponseTime = Date.now();
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
+            this.pendingRequests.delete(requestKey);
+            
             if (data.events && data.events.length > 0) {
                 this.handleEvents(data.events);
             }
+            
         } catch (error) {
             console.error('Polling error:', error);
+            this.pendingRequests.clear();
+            
+            if (error.name === 'AbortError') {
+                this.updateStatus('Server request timeout');
+            }
+        } finally {
+            this.isPolling = false;
         }
     }
 
     handleEvents(events) {
+        this.lastResponseTime = Date.now();
         events.forEach(event => {
             console.log('Received event:', event);
             switch (event.event) {
@@ -2769,51 +2854,72 @@ class ChessMultiplayer {
         }
         
         try {
-          console.log('Sending move to server...');
-          
-          // ADD TIMEOUT HANDLING
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-          
-          const response = await fetch(`${this.serverUrl}/api/chess-move`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              clientId: this.clientId,
-              gameId: this.currentGame.id,
-              move: move
-            }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          const data = await response.json();
-          console.log('Server response:', data);
-          
-          if (data.success) {
-            this.currentGame = data.gameState;
-            this.updateStatus(`Move sent - waiting for opponent...`);
-            return true;
-          } else {
-            this.updateStatus('Move failed: ' + data.error);
-            return false;
-          }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch(`${this.serverUrl}/api/chess-move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientId: this.clientId,
+                    gameId: this.currentGame.id,
+                    move: move
+                })
+            });
+            
+            this.lastResponseTime = Date.now(); // ← UPDATE THIS
+            
+            clearTimeout(timeoutId);
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.currentGame = data.gameState;
+                this.updateStatus(`Move sent - waiting for opponent...`);
+                return true;
+            } else {
+                // If "Not your turn" error, it might mean we're out of sync
+                if (data.error === 'Not your turn') {
+                    this.updateStatus('Sync issue - refreshing game state...');
+                    // Force refresh by re-fetching game state
+                    await this.refreshGameState();
+                }
+                this.updateStatus('Move failed: ' + data.error);
+                return false;
+            }
         } catch (error) {
-          console.error('Failed to send move:', error);
-          
-          // SPECIFIC TIMEOUT HANDLING
-          if (error.name === 'AbortError') {
-            this.updateStatus('Move timeout - server not responding');
-            console.error('Server timeout - attempting reconnection...');
-            // Optional: Implement reconnection logic here
-          } else {
+            console.error('Failed to send move:', error);
+            
+            if (error.name === 'AbortError') {
+                this.updateStatus('Move timeout - attempting reconnection...');
+                const reconnected = await this.reconnect();
+                if (reconnected) {
+                    // Retry the move after reconnection
+                    return await this.makeMove(move);
+                }
+            }
             this.updateStatus('Error sending move: ' + error.message);
-          }
-          return false;
+            return false;
         }
       }
-
+    async refreshGameState() {
+        if (!this.currentGame) return;
+        
+        try {
+            const response = await fetch(`${this.serverUrl}/api/chess-game/${this.currentGame.id}`);
+            const data = await response.json();
+            if (data.success) {
+                this.currentGame = data.gameState;
+                // Update local engine state to match server
+                this.engine.state = this.engine.parseFEN(this.currentGame.fen);
+                render();
+                updateEvalBar();
+                refreshPanels();
+            }
+        } catch (error) {
+            console.error('Failed to refresh game state:', error);
+        }
+    }
     async updateOnlinePlayers(users = null) {
         const playersList = document.getElementById('onlinePlayersList');
         if (!playersList) return;
@@ -3023,7 +3129,6 @@ function handleMultiplayerSquareClick(r, c) {
     }
     
     const p = mainEngine.state.board[r][c];
-    console.log('Piece at square:', p);
     
     if (mainEngine.selected) {
         const match = mainEngine.legalTargets.find(
