@@ -7,6 +7,9 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Notify Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
@@ -16,14 +19,17 @@ jobs:
           URL="${{ github.event.head_commit.url }}"
           COMMIT_MSG="${{ github.event.head_commit.message }}"
 
-          # Escape quotes in commit message
+          # Escape quotes
           ESC_MSG=$(echo "$COMMIT_MSG" | sed 's/"/\\"/g')
 
-          # Create JSON payload safely
+          # Build JSON payload
           PAYLOAD=$(jq -n --arg msg "Hey @playtesters, @${ACTOR} updated **${REPO}**: \"$ESC_MSG\" [view commit](${URL})" '{content: $msg}')
 
-          # Send to Discord
+          # Debug
+          echo "$PAYLOAD"
+
+          # Send webhook
           curl -H "Content-Type: application/json" \
                -X POST \
                -d "$PAYLOAD" \
-               $DISCORD_WEBHOOK
+               "$DISCORD_WEBHOOK"
