@@ -1,4 +1,4 @@
-name: Discord Commit Notify
+name: Discord Test Notify
 
 on:
   push:
@@ -7,29 +7,11 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Notify Discord
+      - name: Send hi to Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          REPO="${{ github.repository }}"
-          ACTOR="${{ github.actor }}"
-          URL="${{ github.event.head_commit.url }}"
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-
-          # Escape quotes
-          ESC_MSG=$(echo "$COMMIT_MSG" | sed 's/"/\\"/g')
-
-          # Build JSON payload
-          PAYLOAD=$(jq -n --arg msg "Hey @playtesters, @${ACTOR} updated **${REPO}**: \"$ESC_MSG\" [view commit](${URL})" '{content: $msg}')
-
-          # Debug
-          echo "$PAYLOAD"
-
-          # Send webhook
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "$PAYLOAD" \
+               -d '{"content":"hi"}' \
                "$DISCORD_WEBHOOK"
