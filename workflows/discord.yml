@@ -11,21 +11,19 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # Read commits from GitHub event payload
-          MSG="Hey @playtesters, @AIGsniperYt has pushed updates:\n"
+          REPO="${{ github.repository }}"
+          ACTOR="${{ github.actor }}"
+          URL="${{ github.event.head_commit.url }}"
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
 
-          COMMITS=$(jq -c '.commits[]' $GITHUB_EVENT_PATH)
-          for commit in $COMMITS; do
-            # Get commit message safely
-            CMSG=$(echo $commit | jq -r '.message // "No commit message"')
-            # Escape quotes for JSON
-            ESC_MSG=$(echo "$CMSG" | sed 's/"/\\"/g')
-            URL=$(echo $commit | jq -r '.url')
-            MSG="${MSG}- ${ESC_MSG} ([view commit](${URL}))\n"
-          done
+          # Escape quotes in commit message
+          ESC_MSG=$(echo "$COMMIT_MSG" | sed 's/"/\\"/g')
 
-          # Post to Discord webhook
+          # Create JSON payload safely
+          PAYLOAD=$(jq -n --arg msg "Hey @playtesters, @${ACTOR} updated **${REPO}**: \"$ESC_MSG\" [view commit](${URL})" '{content: $msg}')
+
+          # Send to Discord
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "{\"content\": \"$MSG\"}" \
+               -d "$PAYLOAD" \
                $DISCORD_WEBHOOK
