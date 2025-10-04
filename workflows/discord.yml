@@ -13,15 +13,15 @@ jobs:
         run: |
           # Build commit list safely
           MSG="Hey @playtesters, @AIGsniperYt has pushed updates:\n"
-          for commit in $(jq -r '.commits[] | @base64' <<< "$GITHUB_EVENT_PATH"); do
-            _jq() {
-              echo ${commit} | base64 --decode | jq -r ${1}
-            }
-            CMSG=$(_jq '.message')
-            CURL_MSG=$(echo "${CMSG:-No commit message}" | sed 's/"/\\"/g')
-            URL=$(_jq '.url')
+
+          COMMITS=$(jq -c '.commits[]' $GITHUB_EVENT_PATH)
+          for commit in $COMMITS; do
+            CMSG=$(echo $commit | jq -r '.message // "No commit message"')
+            CURL_MSG=$(echo "$CMSG" | sed 's/"/\\"/g')
+            URL=$(echo $commit | jq -r '.url')
             MSG="${MSG}- ${CURL_MSG} ([view commit](${URL}))\n"
           done
+
           # Send to Discord
           curl -H "Content-Type: application/json" \
                -X POST \
