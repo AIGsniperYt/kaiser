@@ -1213,15 +1213,16 @@ function updateEvalBar() {
 }
 
 // Promotion overlay (uses mainEngine)
-function showPromotionOverlay(move) {
+function showPromotionOverlay(move, isMultiplayer = false) {
   const overlay = document.getElementById("promotionOverlay");
   overlay.innerHTML = "";
   overlay.style.display = "flex";
   const box = document.createElement("div");
   box.className = "promoBox";
-  const isWhite =
-    mainEngine.state.board[move.from[0]][move.from[1]] ===
-    mainEngine.state.board[move.from[0]][move.from[1]].toUpperCase();
+  
+  // Determine piece color based on the moving piece
+  const piece = mainEngine.state.board[move.from[0]][move.from[1]];
+  const isWhite = piece === piece.toUpperCase();
   const pieces = isWhite ? ["Q", "R", "B", "N"] : ["q", "r", "b", "n"];
 
   for (let i = 0; i < 4; i++) {
@@ -1242,19 +1243,40 @@ function showPromotionOverlay(move) {
       b.style.fontSize = "30px";
     }
 
-    b.onclick = () => {
+    b.onclick = async () => {
       move.promotion = pieces[i].toLowerCase();
       overlay.style.display = "none";
-      mainEngine.makeMove(move);
-      mainEngine.selected = null;
-      mainEngine.legalTargets = [];
+      
+      if (isMultiplayer && chessMultiplayer && chessMultiplayer.gameStarted) {
+        // For multiplayer: send the move with promotion to server first
+        console.log('Sending promotion move to server:', move);
+        const success = await chessMultiplayer.makeMove(move);
+        if (success) {
+          // Only apply locally if server accepted
+          const moveCopy = deepClone(move);
+          mainEngine.makeMove(moveCopy);
+          mainEngine.selected = null;
+          mainEngine.legalTargets = [];
 
-      // Render immediately
-      render();
-      refreshPanels();
+          render();
+          updateEvalBar();
+          refreshPanels();
+          chessMultiplayer.updateStatus('Promotion move sent - waiting for opponent...');
+        } else {
+          chessMultiplayer.updateStatus('Failed to send promotion move - try again');
+        }
+      } else {
+        // For single player: apply immediately
+        mainEngine.makeMove(move);
+        mainEngine.selected = null;
+        mainEngine.legalTargets = [];
 
-      // Check if next player is a bot
-      checkAndMakeBotMove();
+        render();
+        refreshPanels();
+
+        // Check if next player is a bot
+        checkAndMakeBotMove();
+      }
       checkEnd();
     };
 
@@ -1263,7 +1285,6 @@ function showPromotionOverlay(move) {
 
   overlay.appendChild(box);
 }
-
 // Input handling - UPDATED for multiplayer
 canvas.addEventListener("click", (e) => {
     if (!gameStarted) return;
@@ -1355,32 +1376,69 @@ function debugLog(message, clear = false) {
 
 // Move list / state panel helpers
 function refreshPanels() {
-  const movelist = document.getElementById("movelist");
-  movelist.textContent = mainEngine.moveHistory
-    .map((mv, i) => `${i + 1}. ${moveToAlgebraic(mv)}`)
-    .join("\n");
-  document.getElementById("gamestate").textContent = JSON.stringify(
-    {
-      activeColor: mainEngine.state.activeColor,
-      castling: mainEngine.state.castling,
-      enPassant: mainEngine.state.enPassant,
-      halfmove: mainEngine.state.halfmove,
-      fullmove: mainEngine.state.fullmove,
-    },
-    null,
-    2
-  );
+    const movelist = document.getElementById("movelist");
+    
+    // Filter out invalid moves before processing
+    const validMoves = mainEngine.moveHistory.filter(move => 
+        move && move.from && move.to && 
+        Array.isArray(move.from) && move.from.length >= 2 &&
+        Array.isArray(move.to) && move.to.length >= 2
+    );
+    
+    movelist.textContent = validMoves
+        .map((mv, i) => `${i + 1}. ${moveToAlgebraic(mv)}`)
+        .join("\n");
+        
+    document.getElementById("gamestate").textContent = JSON.stringify(
+        {
+            activeColor: mainEngine.state.activeColor,
+            castling: mainEngine.state.castling,
+            enPassant: mainEngine.state.enPassant,
+            halfmove: mainEngine.state.halfmove,
+            fullmove: mainEngine.state.fullmove,
+        },
+        null,
+        2
+    );
 }
 
 function moveToAlgebraic(m) {
-  const from = filesStr[m.from[1]] + ranksStr[m.from[0]];
-  const to = filesStr[m.to[1]] + ranksStr[m.to[0]];
-  let s = from + to;
-  if (m.promotion) s += "=" + m.promotion.toUpperCase();
-  if (m.flags && m.flags.castle) s = m.flags.castle === "K" ? "O-O" : "O-O-O";
-  if (m.flags && m.flags.enpassant) s += "e.p.";
-  if (m.capture) s = from[0] + "x" + to;
-  return s;
+    // Add safety checks
+    if (!m || !m.from || !m.to) {
+        console.error('Invalid move object:', m);
+        return 'invalid';
+    }
+    
+    // Ensure from and to are arrays with proper length
+    if (!Array.isArray(m.from) || m.from.length < 2 || 
+        !Array.isArray(m.to) || m.to.length < 2) {
+        console.error('Invalid move coordinates:', m);
+        return 'invalid';
+    }
+    
+    // Validate coordinates are within board bounds
+    const [fromR, fromC] = m.from;
+    const [toR, toC] = m.to;
+    
+    if (fromR < 0 || fromR > 7 || fromC < 0 || fromC > 7 ||
+        toR < 0 || toR > 7 || toC < 0 || toC > 7) {
+        console.error('Move coordinates out of bounds:', m);
+        return 'invalid';
+    }
+    
+    try {
+        const from = filesStr[fromC] + ranksStr[fromR];
+        const to = filesStr[toC] + ranksStr[toR];
+        let s = from + to;
+        if (m.promotion) s += "=" + m.promotion.toUpperCase();
+        if (m.flags && m.flags.castle) s = m.flags.castle === "K" ? "O-O" : "O-O-O";
+        if (m.flags && m.flags.enpassant) s += "e.p.";
+        if (m.capture) s = from[0] + "x" + to;
+        return s;
+    } catch (error) {
+        console.error('Error converting move to algebraic:', error, m);
+        return 'error';
+    }
 }
 
 // AI driver - make it asynchronous
@@ -2080,6 +2138,10 @@ function togglePauseTournament() {
   pauseButton.textContent = allPaused ? "Pause" : "Resume";
 }
 
+const MOVE_RETRY_ATTEMPTS = 3;
+const MOVE_RETRY_DELAY = 1000;
+const MOVE_TIMEOUT = 10000;
+
 class ChessMultiplayer {
     constructor(chessEngine) {
         this.engine = chessEngine;
@@ -2106,21 +2168,30 @@ class ChessMultiplayer {
     checkConnectionHealth() {
         const timeSinceLastResponse = Date.now() - this.lastResponseTime;
         
-        if (timeSinceLastResponse > 60000 && this.connectionHealthy) {
+        if (timeSinceLastResponse > 20000 && this.connectionHealthy) {
             this.connectionHealthy = false;
             this.updateStatus('Connection unstable - attempting to recover...');
             
-            // Only attempt reconnect if we haven't exceeded max attempts
+            // Immediate game state sync on connection issues
+            if (this.currentGame) {
+                this.forceResync();
+            }
+            
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnectAttempts++;
                 this.reconnect();
             } else {
                 this.updateStatus('Max reconnection attempts reached. Please refresh the page.');
             }
-        } else if (timeSinceLastResponse < 30000 && !this.connectionHealthy) {
+        } else if (timeSinceLastResponse < 10000 && !this.connectionHealthy) {
             this.connectionHealthy = true;
-            this.reconnectAttempts = 0; // Reset counter on successful recovery
+            this.reconnectAttempts = 0;
             this.updateStatus('Connection restored');
+            
+            // Sync game state when connection is restored
+            if (this.currentGame) {
+                this.forceResync();
+            }
         }
     }
     initializeMultiplayerUI() {
@@ -2214,20 +2285,131 @@ class ChessMultiplayer {
             }
         }, 15000); // Check every 15 seconds instead of 10
     }
+    // Enhanced game state synchronization
+    async syncGameState() {
+        if (!this.currentGame || !this.currentGame.id) {
+            console.log('No current game to sync');
+            return false;
+        }
+        
+        try {
+            console.log('Syncing game state with server for game:', this.currentGame.id);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const response = await fetch(`${this.serverUrl}/api/chess-game/${this.currentGame.id}`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                if (response.status === 404) {
+                    console.error('Game not found on server - it may have been cancelled');
+                    this.handleGameCancelled({});
+                    return false;
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.gameState) {
+                const serverState = data.gameState;
+                
+                // Check if we're out of sync
+                if (serverState.fen !== this.currentGame.fen) {
+                    console.log('Game state out of sync - updating from server');
+                    this.currentGame = serverState;
+                    
+                    // PROPERLY update local engine to match server state
+                    await this.applyServerGameState(serverState);
+                    
+                    this.updateStatus('Game state synchronized');
+                    return true;
+                }
+            } else if (data.error) {
+                console.error('Server returned error:', data.error);
+                if (data.error.includes('not found')) {
+                    this.handleGameCancelled({});
+                }
+            }
+            return false;
+        } catch (error) {
+            console.error('Failed to sync game state:', error);
+            
+            if (error.name === 'AbortError') {
+                console.log('Game state sync timeout - will retry');
+            }
+            
+            return false;
+        }
+    }
 
+    // Enhanced game state synchronization
+    startGameSync() {
+        if (this.gameSyncInterval) {
+            clearInterval(this.gameSyncInterval);
+        }
+        
+        // More frequent but lightweight sync
+        this.gameSyncInterval = setInterval(async () => {
+            if (this.currentGame && this.gameStarted) {
+                await this.syncGameState();
+            }
+        }, 8000); // Sync every 8 seconds
+        
+        // Add heartbeat sync
+        this.heartbeatSync = setInterval(async () => {
+            if (this.currentGame && this.gameStarted) {
+                await this.lightweightSync();
+            }
+        }, 30000); // Lightweight sync every 30 seconds
+    }
+
+    async lightweightSync() {
+        if (!this.currentGame) return;
+        
+        try {
+            const response = await fetch(`${this.serverUrl}/api/chess-game-state/${this.currentGame.id}/${this.clientId}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                // Only update if there's a significant difference
+                const serverMoveCount = data.gameState.moves.length;
+                const localMoveCount = this.engine.moveHistory.length;
+                
+                if (serverMoveCount !== localMoveCount) {
+                    console.log(`Move count mismatch: server=${serverMoveCount}, local=${localMoveCount}`);
+                    await this.applyServerGameState(data.gameState);
+                }
+            }
+        } catch (error) {
+            console.log('Lightweight sync failed:', error.message);
+        }
+    }
+
+    stopGameSync() {
+        if (this.gameSyncInterval) {
+            clearInterval(this.gameSyncInterval);
+            this.gameSyncInterval = null;
+        }
+        if (this.heartbeatSync) {
+            clearInterval(this.heartbeatSync);
+            this.heartbeatSync = null;
+        }
+    }
     async checkForUpdates() {
         if (!this.clientId || this.isPolling) {
-            return; // Skip if already polling or no client ID
+            return;
         }
         
         this.isPolling = true;
         
         try {
-            const requestKey = `update-${Date.now()}`;
-            this.pendingRequests.set(requestKey, true);
-            
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased to 10 seconds
             
             const response = await fetch(`${this.serverUrl}/api/get-updates`, {
                 method: 'POST',
@@ -2240,11 +2422,16 @@ class ChessMultiplayer {
             this.lastResponseTime = Date.now();
             
             if (!response.ok) {
+                if (response.status === 404) {
+                    // User not found - might need to reconnect
+                    console.log('User not found in server - attempting reconnect');
+                    await this.reconnect();
+                    return;
+                }
                 throw new Error(`HTTP ${response.status}`);
             }
             
             const data = await response.json();
-            this.pendingRequests.delete(requestKey);
             
             if (data.events && data.events.length > 0) {
                 this.handleEvents(data.events);
@@ -2252,11 +2439,17 @@ class ChessMultiplayer {
             
         } catch (error) {
             console.error('Polling error:', error);
-            this.pendingRequests.clear();
             
             if (error.name === 'AbortError') {
-                this.updateStatus('Server request timeout');
+                this.updateStatus('Server request timeout - retrying...');
+            } else if (error.name === 'TypeError') {
+                this.updateStatus('Network error - check connection');
+                // Attempt reconnection on network errors
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    setTimeout(() => this.reconnect(), 2000);
+                }
             }
+            
         } finally {
             this.isPolling = false;
         }
@@ -2403,7 +2596,30 @@ class ChessMultiplayer {
             }
         });
     }
-
+    cleanupGame() {
+        this.stopGameSync();
+        this.currentGame = null;
+        this.isChallenger = false;
+        this.selectedColor = null;
+        this.ourColor = null;
+        this.gameStarted = false;
+        
+        // Re-enable single player controls
+        document.getElementById('whitePlayer').disabled = false;
+        document.getElementById('blackPlayer').disabled = false;
+        document.getElementById('btnStart').style.display = 'block';
+        
+        // Reset board to starting position
+        mainEngine.state = mainEngine.parseFEN(START_FEN);
+        mainEngine.moveHistory = [];
+        mainEngine.positionHistory = [mainEngine.positionKey(mainEngine.state)];
+        mainEngine.selected = null;
+        mainEngine.legalTargets = [];
+        
+        render();
+        updateEvalBar();
+        refreshPanels();
+    }
     updateChallengesList() {
         const challengesList = document.getElementById('pendingChallengesList');
         if (!challengesList) return;
@@ -2698,8 +2914,11 @@ class ChessMultiplayer {
             updateEvalBar();
             refreshPanels();
             
-            this.updateStatus(`Playing vs ${opponentName} (you are ${this.ourColor}) - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
+            // Start game state synchronization
+            this.startGameSync();
             
+            // Enhanced status update
+            this.updateStatus(`Playing vs ${opponentName} (you are ${this.ourColor}) - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);            
         } catch (error) {
             console.error('Error setting up multiplayer game:', error);
             this.updateStatus('Error setting up game');
@@ -2746,20 +2965,31 @@ class ChessMultiplayer {
         this.removeGameSetupPanel();
         this.updateStatus('Game setup cancelled');
     }
-
     handleGameCancelled(data) {
-        this.currentGame = null;
-        this.isChallenger = false;
-        this.selectedColor = null;
-        this.ourColor = null;
-        this.gameStarted = false;
-        this.removeGameSetupPanel();
+        console.log('Game cancelled:', data);
+        this.cleanupGame();
         this.updateStatus('Game was cancelled by the other player');
         
-        // Re-enable controls
-        document.getElementById('whitePlayer').disabled = false;
-        document.getElementById('blackPlayer').disabled = false;
-        document.getElementById('btnStart').style.display = 'block';
+        // Show notification to user
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff6b6b;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 10000;
+            max-width: 300px;
+        `;
+        notification.innerHTML = '<strong>Game Cancelled</strong><p>The other player cancelled the game.</p>';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            if (document.body.contains(notification)) {
+                document.body.removeChild(notification);
+            }
+        }, 5000);
     }
 
     handleKicked(data) {
@@ -2773,22 +3003,29 @@ class ChessMultiplayer {
     }
 
     handleOpponentMove(data) {
-        if (this.currentGame && this.currentGame.id === data.gameId) {
-            console.log('Processing opponent move:', data.move);
-            
-            // Update the game state
+      if (this.currentGame && this.currentGame.id === data.gameId) {
+        console.log('Processing opponent move:', data.move);
+        
+        // Always use the server's game state to ensure consistency
+        if (data.gameState) {
             this.currentGame = data.gameState;
-            
-            // Apply the move to our local engine
-            this.engine.makeMove(data.move);
-            
-            // Update the board
-            render();
-            updateEvalBar();
-            refreshPanels();
-            
-            this.updateStatus(`Opponent moved - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
+            this.applyServerGameState(data.gameState);
+        } else {
+            // Fallback: apply just the move
+            const moveWithPromotion = {
+                ...data.move,
+                promotion: data.move.promotion || null
+            };
+            this.engine.makeMove(moveWithPromotion);
         }
+        
+        // Update the board
+        render();
+        updateEvalBar();
+        refreshPanels();
+        
+        this.updateStatus(`Opponent moved - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
+      }
     }
 
     handleJoinApproved(data) {
@@ -2805,7 +3042,7 @@ class ChessMultiplayer {
         this.disconnect();
     }
 
-    // FIXED: Proper move validation and sending
+    // Enhanced makeMove method in ChessMultiplayer class
     async makeMove(move) {
         console.log('makeMove called:', { 
             currentGame: !!this.currentGame, 
@@ -2820,88 +3057,190 @@ class ChessMultiplayer {
             return false;
         }
         
-        // FIX: Use the ORIGINAL engine state (before any local moves) for validation
-        const currentTurn = this.engine.state.activeColor; // This should still be our turn
+        // Enhanced validation
+        const currentTurn = this.engine.state.activeColor;
         const isOurTurn = (currentTurn === 'w' && this.ourColor === 'white') || 
                         (currentTurn === 'b' && this.ourColor === 'black');
         
-        console.log('Turn validation (ORIGINAL STATE):', {
-            engineTurn: currentTurn,
-            ourColor: this.ourColor,
-            isOurTurn: isOurTurn
-        });
-        
-        // Validate it's our turn using local engine state
         if (!isOurTurn) {
             console.log('Not your turn!');
             this.updateStatus('Not your turn! Wait for opponent.');
             return false;
         }
         
-        // Validate we're moving our own pieces
-        const piece = this.engine.state.board[move.from[0]][move.from[1]];
-        if (!piece) {
-            console.log('No piece at selected square');
-            this.updateStatus('Invalid move - no piece selected');
-            return false;
+        // Generate client state hash for synchronization
+        const clientState = {
+            boardHash: this.generateClientBoardHash(),
+            moveCount: this.engine.moveHistory.length,
+            currentTurn: this.engine.state.activeColor
+        };
+        
+        // Retry mechanism with state synchronization
+        for (let attempt = 1; attempt <= MOVE_RETRY_ATTEMPTS; attempt++) {
+            try {
+                console.log(`Sending move attempt ${attempt}/${MOVE_RETRY_ATTEMPTS}`);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), MOVE_TIMEOUT);
+                
+                const response = await fetch(`${this.serverUrl}/api/sync-chess-move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clientId: this.clientId,
+                        gameId: this.currentGame.id,
+                        move: move,
+                        clientState: clientState
+                    }),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                this.lastResponseTime = Date.now();
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update local state with server state
+                    this.currentGame = data.gameState;
+                    
+                    // Only apply move locally if server confirmed it
+                    const moveCopy = deepClone(move);
+                    this.engine.makeMove(moveCopy);
+                    
+                    console.log('Move successfully sent and applied locally');
+                    this.updateStatus(`Move sent - waiting for opponent...`);
+                    return true;
+                    
+                } else if (data.requiresResync) {
+                    console.log('State mismatch - resyncing with server');
+                    await this.forceResync();
+                    
+                    // Revalidate turn after resync
+                    const newIsOurTurn = this.isOurTurn();
+                    if (!newIsOurTurn) {
+                        this.updateStatus('Turn changed during resync');
+                        return false;
+                    }
+                    
+                    // Retry the move with fresh state
+                    if (attempt < MOVE_RETRY_ATTEMPTS) {
+                        continue;
+                    }
+                } else {
+                    console.log(`Move rejected by server: ${data.error}`);
+                    this.updateStatus('Move failed: ' + data.error);
+                    return false;
+                }
+                
+            } catch (error) {
+                console.error(`Move attempt ${attempt} failed:`, error);
+                
+                if (error.name === 'AbortError') {
+                    this.updateStatus(`Move timeout (attempt ${attempt}/${MOVE_RETRY_ATTEMPTS})`);
+                } else {
+                    this.updateStatus(`Network error (attempt ${attempt}/${MOVE_RETRY_ATTEMPTS})`);
+                }
+                
+                if (attempt < MOVE_RETRY_ATTEMPTS) {
+                    const delay = MOVE_RETRY_DELAY * Math.pow(2, attempt - 1);
+                    console.log(`Retrying move in ${delay}ms`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    
+                    // Try to resync before retry
+                    if (!await this.forceResync()) {
+                        this.updateStatus('Failed to resync - aborting move');
+                        return false;
+                    }
+                } else {
+                    this.updateStatus('Failed to send move after all attempts');
+                    return false;
+                }
+            }
         }
         
-        const pieceColor = piece === piece.toUpperCase() ? 'white' : 'black';
-        if (pieceColor !== this.ourColor) {
-            console.log('Cannot move opponent pieces!');
-            this.updateStatus('Cannot move opponent pieces!');
-            return false;
-        }
+        return false;
+    }
+
+    // Add force resync method
+    async forceResync() {
+        if (!this.currentGame) return false;
         
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            console.log('Forcing game state resynchronization');
             
-            const response = await fetch(`${this.serverUrl}/api/chess-move`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    clientId: this.clientId,
-                    gameId: this.currentGame.id,
-                    move: move
-                })
-            });
-            
-            this.lastResponseTime = Date.now(); // ← UPDATE THIS
-            
-            clearTimeout(timeoutId);
-            
+            const response = await fetch(`${this.serverUrl}/api/force-sync/${this.currentGame.id}/${this.clientId}`);
             const data = await response.json();
             
             if (data.success) {
                 this.currentGame = data.gameState;
-                this.updateStatus(`Move sent - waiting for opponent...`);
+                await this.applyServerGameState(this.currentGame);
+                this.updateStatus('Game state resynchronized');
                 return true;
-            } else {
-                // If "Not your turn" error, it might mean we're out of sync
-                if (data.error === 'Not your turn') {
-                    this.updateStatus('Sync issue - refreshing game state...');
-                    // Force refresh by re-fetching game state
-                    await this.refreshGameState();
-                }
-                this.updateStatus('Move failed: ' + data.error);
-                return false;
             }
         } catch (error) {
-            console.error('Failed to send move:', error);
+            console.error('Force resync failed:', error);
+        }
+        
+        return false;
+    }
+
+    // Enhanced method to apply server game state
+    async applyServerGameState(serverGameState) {
+        try {
+            // Parse FEN from server
+            this.engine.state = this.engine.parseFEN(serverGameState.fen);
             
-            if (error.name === 'AbortError') {
-                this.updateStatus('Move timeout - attempting reconnection...');
-                const reconnected = await this.reconnect();
-                if (reconnected) {
-                    // Retry the move after reconnection
-                    return await this.makeMove(move);
+            // Clear and rebuild move history properly
+            this.engine.moveHistory = [];
+            
+            // Replay all valid moves to ensure consistency
+            if (serverGameState.moves && Array.isArray(serverGameState.moves)) {
+                for (const moveRecord of serverGameState.moves) {
+                    if (moveRecord && moveRecord.move) {
+                        try {
+                            // Use a fresh engine state for each move to avoid corruption
+                            const tempEngine = new ChessEngine(serverGameState.fen);
+                            const validMove = deepClone(moveRecord.move);
+                            this.engine.makeMove(validMove);
+                        } catch (moveError) {
+                            console.error('Failed to replay move:', moveRecord.move, moveError);
+                            // Continue with other moves even if one fails
+                        }
+                    }
                 }
             }
-            this.updateStatus('Error sending move: ' + error.message);
+            
+            // Update UI
+            render();
+            updateEvalBar();
+            refreshPanels();
+            
+            console.log('Server game state applied successfully');
+            return true;
+        } catch (error) {
+            console.error('Failed to apply server game state:', error);
+            
+            // Fallback: reset to the FEN position
+            try {
+                this.engine.state = this.engine.parseFEN(serverGameState.fen);
+                this.engine.moveHistory = [];
+                render();
+                updateEvalBar();
+                refreshPanels();
+            } catch (fallbackError) {
+                console.error('Fallback also failed:', fallbackError);
+            }
+            
             return false;
         }
-      }
+    }
+
+    // Generate client board hash for synchronization
+    generateClientBoardHash() {
+        const fen = this.engine.positionKey(this.engine.state);
+        return btoa(fen).substring(0, 16);
+    }
     async refreshGameState() {
         if (!this.currentGame) return;
         
@@ -3072,6 +3411,7 @@ class ChessMultiplayer {
     }
 
     disconnect() {
+        this.stopGameSync();
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
@@ -3111,7 +3451,8 @@ function createMultiplayerSquareClickHandler() {
     return function(r, c) {
         // If we're in a multiplayer game, use multiplayer logic
         if (chessMultiplayer && chessMultiplayer.gameStarted) {
-            handleMultiplayerSquareClick(r, c);
+            // Bind the context properly
+            handleMultiplayerSquareClick.call(chessMultiplayer, r, c);
         } else {
             // Otherwise use original single-player logic
             originalOnSquareClick(r, c);
@@ -3120,11 +3461,20 @@ function createMultiplayerSquareClickHandler() {
 }
 
 // FIXED: Multiplayer-specific square click handler
-function handleMultiplayerSquareClick(r, c) {
-    console.log('Multiplayer square click:', {r, c, ourColor: chessMultiplayer.ourColor, ourTurn: chessMultiplayer.isOurTurn()});
+async function handleMultiplayerSquareClick(r, c) {
+    console.log('Multiplayer square click:', {r, c, ourColor: this.ourColor, ourTurn: this.isOurTurn()});
     
-    if (!chessMultiplayer.isOurTurn()) {
-        chessMultiplayer.updateStatus('Not your turn! Wait for opponent.');
+    // Quick sync check without blocking
+    try {
+        await this.lightweightSync().catch(() => {
+            console.log('Lightweight sync failed, continuing anyway');
+        });
+    } catch (error) {
+        console.log('Sync check failed, but continuing:', error);
+    }
+    
+    if (!this.isOurTurn()) {
+        this.updateStatus('Not your turn! Wait for opponent.');
         return;
     }
     
@@ -3138,7 +3488,7 @@ function handleMultiplayerSquareClick(r, c) {
         if (match) {
             console.log('Move match found:', match);
             
-            // Validate we're moving our own piece
+            // Enhanced validation
             const selectedPiece = mainEngine.state.board[mainEngine.selected[0]][mainEngine.selected[1]];
             if (!selectedPiece) {
                 console.log('No piece at selected square - clearing selection');
@@ -3150,17 +3500,17 @@ function handleMultiplayerSquareClick(r, c) {
             
             const selectedPieceColor = selectedPiece === selectedPiece.toUpperCase() ? 'white' : 'black';
             
-            if (selectedPieceColor !== chessMultiplayer.ourColor) {
-                chessMultiplayer.updateStatus('Cannot move opponent pieces!');
+            if (selectedPieceColor !== this.ourColor) {
+                this.updateStatus('Cannot move opponent pieces!');
                 mainEngine.selected = null;
                 mainEngine.legalTargets = [];
                 render();
                 return;
             }
 
-            // DOUBLE-CHECK: It's still our turn before proceeding
-            if (!chessMultiplayer.isOurTurn()) {
-                chessMultiplayer.updateStatus('Turn ended while selecting move!');
+            // Final turn check before sending
+            if (!this.isOurTurn()) {
+                this.updateStatus('Turn ended while selecting move!');
                 mainEngine.selected = null;
                 mainEngine.legalTargets = [];
                 render();
@@ -3168,33 +3518,31 @@ function handleMultiplayerSquareClick(r, c) {
             }
             
             if (match.promotion) {
-                console.log('Showing promotion overlay');
-                showPromotionOverlay(match);
+                console.log('Showing promotion overlay for multiplayer');
+                showPromotionOverlay(match, true);
                 return;
             }
 
-            // Send move to server FIRST, before making local move
-            console.log('Sending move to server');
-            chessMultiplayer.makeMove(match).then(success => {
-                if (success) {
-                    // Only make local move if server accepted it
-                    console.log('Server accepted move, applying locally');
-                    const moveCopy = deepClone(match);
-                    mainEngine.makeMove(moveCopy);
-                    mainEngine.selected = null;
-                    mainEngine.legalTargets = [];
+            // Send move with enhanced synchronization
+            console.log('Sending move to server with enhanced sync');
+            const success = await this.makeMove(match);
+            
+            if (success) {
+                console.log('Server accepted move');
+                // Move already applied locally in makeMove method
+                mainEngine.selected = null;
+                mainEngine.legalTargets = [];
 
-                    // Render after successful server response
-                    render();
-                    updateEvalBar();
-                    refreshPanels();
+                render();
+                updateEvalBar();
+                refreshPanels();
 
-                    chessMultiplayer.updateStatus('Move sent - waiting for opponent...');
-                } else {
-                    chessMultiplayer.updateStatus('Failed to send move - try again');
-                    // Don't make local move if server rejected it
-                }
-            });
+                this.updateStatus('Move sent - waiting for opponent...');
+            } else {
+                this.updateStatus('Failed to send move - please try again');
+                // Refresh game state on failure
+                await this.forceResync();
+            }
             return;
         }
 
@@ -3203,14 +3551,14 @@ function handleMultiplayerSquareClick(r, c) {
             const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
             
             // Only allow selecting our own pieces
-            if (pieceColor === chessMultiplayer.ourColor) {
+            if (pieceColor === this.ourColor) {
                 mainEngine.selected = [r, c];
                 mainEngine.legalTargets = mainEngine
                     .generateLegalMoves(mainEngine.state)
                     .filter(m => m.from[0] === r && m.from[1] === c);
                 render();
             } else {
-                chessMultiplayer.updateStatus('Cannot select opponent pieces!');
+                this.updateStatus('Cannot select opponent pieces!');
                 mainEngine.selected = null;
                 mainEngine.legalTargets = [];
                 render();
@@ -3226,8 +3574,7 @@ function handleMultiplayerSquareClick(r, c) {
         if (p) {
             const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
             
-            // Only allow selecting our own pieces
-            if (pieceColor === chessMultiplayer.ourColor) {
+            if (pieceColor === this.ourColor) {
                 mainEngine.selected = [r, c];
                 mainEngine.legalTargets = mainEngine
                     .generateLegalMoves(mainEngine.state)
@@ -3235,14 +3582,13 @@ function handleMultiplayerSquareClick(r, c) {
                 render();
                 console.log('Selected piece, legal moves:', mainEngine.legalTargets.length);
             } else {
-                chessMultiplayer.updateStatus('Cannot select opponent pieces!');
+                this.updateStatus('Cannot select opponent pieces!');
             }
         } else {
-            chessMultiplayer.updateStatus('No piece at this square');
+            this.updateStatus('No piece at this square');
         }
     }
 }
-
 // Initialize multiplayer when the page loads
 document.addEventListener('DOMContentLoaded', () => {
     chessMultiplayer = new ChessMultiplayer(mainEngine);
