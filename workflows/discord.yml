@@ -7,22 +7,24 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Send commit messages to Discord
+      - name: Notify Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # Build commit list safely
+          # Read commits from GitHub event payload
           MSG="Hey @playtesters, @AIGsniperYt has pushed updates:\n"
 
           COMMITS=$(jq -c '.commits[]' $GITHUB_EVENT_PATH)
           for commit in $COMMITS; do
+            # Get commit message safely
             CMSG=$(echo $commit | jq -r '.message // "No commit message"')
-            CURL_MSG=$(echo "$CMSG" | sed 's/"/\\"/g')
+            # Escape quotes for JSON
+            ESC_MSG=$(echo "$CMSG" | sed 's/"/\\"/g')
             URL=$(echo $commit | jq -r '.url')
-            MSG="${MSG}- ${CURL_MSG} ([view commit](${URL}))\n"
+            MSG="${MSG}- ${ESC_MSG} ([view commit](${URL}))\n"
           done
 
-          # Send to Discord
+          # Post to Discord webhook
           curl -H "Content-Type: application/json" \
                -X POST \
                -d "{\"content\": \"$MSG\"}" \
