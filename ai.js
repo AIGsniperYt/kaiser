@@ -132,77 +132,88 @@ class ChessEngine {
 
   // === FEN ===
   parseFEN(fenString) {
-    const fenParts = (fenString || "").trim().split(/\s+/);
-    if (fenParts.length !== 6)
-      throw new Error("Invalid FEN: must have 6 fields.");
-
-    const [
-      piecePlacement,
-      activeColor,
-      castlingField,
-      enPassantField,
-      halfmoveClock,
-      fullmoveNumber,
-    ] = fenParts;
-    const ranks = piecePlacement.split("/");
-    if (ranks.length !== 8) throw new Error("Invalid FEN: must have 8 ranks.");
-
-    const newBoard = Array.from({ length: 8 }, () => Array(8).fill(""));
-    for (let r = 0; r < 8; r++) {
-      let fileIndex = 0;
-      const rankStr = ranks[r];
-      for (let i = 0; i < rankStr.length; i++) {
-        const ch = rankStr[i];
-        if (/[1-8]/.test(ch)) {
-          fileIndex += Number(ch);
-        } else if (/[prnbqkPRNBQK]/.test(ch)) {
-          if (fileIndex >= 8)
-            throw new Error(`Invalid FEN: too many squares on rank ${8 - r}.`);
-          newBoard[r][fileIndex++] = ch;
-        } else {
-          throw new Error(`Invalid FEN: unexpected character "${ch}".`);
-        }
+      const fenParts = (fenString || "").trim().split(/\s+/);
+      
+      // Handle incomplete FEN strings by providing defaults
+      if (fenParts.length < 6) {
+          console.warn('Incomplete FEN received, filling with defaults:', fenString);
+          console.warn(fenString);
+          // Ensure we have at least 6 parts with defaults
+          const defaultFEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'.split(' ');
+          for (let i = 0; i < 6; i++) {
+              if (!fenParts[i]) {
+                  fenParts[i] = defaultFEN[i];
+              }
+          }
       }
-      if (fileIndex !== 8)
-        throw new Error(`Invalid FEN: rank ${8 - r} does not fill 8 files.`);
-    }
 
-    if (activeColor !== "w" && activeColor !== "b")
-      throw new Error("Invalid FEN: active color must be 'w' or 'b'.");
+      const [
+        piecePlacement,
+        activeColor,
+        castlingField,
+        enPassantField,
+        halfmoveClock,
+        fullmoveNumber,
+      ] = fenParts;
+      const ranks = piecePlacement.split("/");
+      if (ranks.length !== 8) throw new Error("Invalid FEN: must have 8 ranks.");
 
-    const cast = castlingField === "-" ? "-" : castlingField;
-    const newCastling = {
-      wK: cast.includes("K"),
-      wQ: cast.includes("Q"),
-      bK: cast.includes("k"),
-      bQ: cast.includes("q"),
-    };
+      const newBoard = Array.from({ length: 8 }, () => Array(8).fill(""));
+      for (let r = 0; r < 8; r++) {
+        let fileIndex = 0;
+        const rankStr = ranks[r];
+        for (let i = 0; i < rankStr.length; i++) {
+          const ch = rankStr[i];
+          if (/[1-8]/.test(ch)) {
+            fileIndex += Number(ch);
+          } else if (/[prnbqkPRNBQK]/.test(ch)) {
+            if (fileIndex >= 8)
+              throw new Error(`Invalid FEN: too many squares on rank ${8 - r}.`);
+            newBoard[r][fileIndex++] = ch;
+          } else {
+            throw new Error(`Invalid FEN: unexpected character "${ch}".`);
+          }
+        }
+        if (fileIndex !== 8)
+          throw new Error(`Invalid FEN: rank ${8 - r} does not fill 8 files.`);
+      }
 
-    let newEnPassant = null;
-    if (enPassantField !== "-") {
-      if (!/^[a-h][36]$/.test(enPassantField))
-        throw new Error("Invalid FEN: bad en-passant square.");
-      const col = filesStr.indexOf(enPassantField[0]);
-      const rankNum = Number(enPassantField[1]);
-      const row = 8 - rankNum;
-      newEnPassant = [row, col];
-    }
+      if (activeColor !== "w" && activeColor !== "b")
+        throw new Error("Invalid FEN: active color must be 'w' or 'b'.");
 
-    const halfmove = Number.isNaN(Number(halfmoveClock))
-      ? 0
-      : parseInt(halfmoveClock, 10);
-    const fullmove = Number.isNaN(Number(fullmoveNumber))
-      ? 1
-      : parseInt(fullmoveNumber, 10);
+      const cast = castlingField === "-" ? "-" : castlingField;
+      const newCastling = {
+        wK: cast.includes("K"),
+        wQ: cast.includes("Q"),
+        bK: cast.includes("k"),
+        bQ: cast.includes("q"),
+      };
 
-    return {
-      board: newBoard,
-      activeColor,
-      castling: newCastling,
-      enPassant: newEnPassant,
-      halfmove,
-      fullmove,
-    };
+      let newEnPassant = null;
+      if (enPassantField !== "-") {
+        if (!/^[a-h][36]$/.test(enPassantField))
+          throw new Error("Invalid FEN: bad en-passant square.");
+        const col = filesStr.indexOf(enPassantField[0]);
+        const rankNum = Number(enPassantField[1]);
+        const row = 8 - rankNum;
+        newEnPassant = [row, col];
+      }
+
+      const halfmove = Number.isNaN(Number(halfmoveClock))
+        ? 0
+        : parseInt(halfmoveClock, 10);
+      const fullmove = Number.isNaN(Number(fullmoveNumber))
+        ? 1
+        : parseInt(fullmoveNumber, 10);
+
+      return {
+        board: newBoard,
+        activeColor,
+        castling: newCastling,
+        enPassant: newEnPassant,
+        halfmove,
+        fullmove,
+      };
   }
 
   // === Hash key ===
@@ -2597,6 +2608,7 @@ class ChessMultiplayer {
         });
     }
     cleanupGame() {
+        this.stopPositionSync(); 
         this.stopGameSync();
         this.currentGame = null;
         this.isChallenger = false;
@@ -2881,49 +2893,55 @@ class ChessMultiplayer {
         this.removeGameSetupPanel();
     }
 
-    setupMultiplayerGame() {
-        if (!this.currentGame) return;
+// In setupMultiplayerGame method, replace the FEN setup part:
+setupMultiplayerGame() {
+    if (!this.currentGame) return;
+    
+    try {
+        // Determine our color
+        this.ourColor = this.currentGame.playerWhite === this.clientId ? 'white' : 'black';
+        const opponentName = this.ourColor === 'white' ? this.currentGame.blackName : this.currentGame.whiteName;
         
-        try {
-            // Determine our color
-            this.ourColor = this.currentGame.playerWhite === this.clientId ? 'white' : 'black';
-            const opponentName = this.ourColor === 'white' ? this.currentGame.blackName : this.currentGame.whiteName;
-            
-            this.updateGameUIForMultiplayer(this.ourColor, opponentName);
-            
-            // Reset the engine with the game's FEN position
-            this.engine.state = this.engine.parseFEN(this.currentGame.fen || START_FEN);
-            this.engine.moveHistory = [];
-            this.engine.positionHistory = [this.engine.positionKey(this.engine.state)];
-            this.engine.selected = null;
-            this.engine.legalTargets = [];
-            
-            // Set board orientation - player should see from their perspective
-            this.engine.flipBoard = this.ourColor === 'black';
-            
-            // Mark multiplayer game as started
-            this.gameStarted = true;
-            gameStarted = true; // Global game started flag
-            
-            // Disable player selection controls
-            document.getElementById('whitePlayer').disabled = true;
-            document.getElementById('blackPlayer').disabled = true;
-            document.getElementById('btnStart').style.display = 'none';
-            
-            render();
-            updateEvalBar();
-            refreshPanels();
-            
-            // Start game state synchronization
-            this.startGameSync();
-            
-            // Enhanced status update
-            this.updateStatus(`Playing vs ${opponentName} (you are ${this.ourColor}) - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);            
-        } catch (error) {
-            console.error('Error setting up multiplayer game:', error);
-            this.updateStatus('Error setting up game');
-        }
+        this.updateGameUIForMultiplayer(this.ourColor, opponentName);
+        
+        // Use server FEN and ensure proper parsing
+        const serverFEN = this.currentGame.fen || START_FEN;
+        console.log('Setting up game with server FEN:', serverFEN);
+        
+        // Reset engine completely using server FEN
+        this.engine.state = this.engine.parseFEN(serverFEN);
+        this.engine.moveHistory = [];
+        this.engine.positionHistory = [this.engine.positionKey(this.engine.state)];
+        this.engine.selected = null;
+        this.engine.legalTargets = [];
+        
+        // Set board orientation
+        this.engine.flipBoard = this.ourColor === 'black';
+        
+        // Mark multiplayer game as started
+        this.gameStarted = true;
+        gameStarted = true;
+        
+        // Disable player selection controls
+        document.getElementById('whitePlayer').disabled = true;
+        document.getElementById('blackPlayer').disabled = true;
+        document.getElementById('btnStart').style.display = 'none';
+        
+        render();
+        updateEvalBar();
+        refreshPanels();
+        
+        // Debug info
+        debugMultiplayerState();
+        
+        this.startGameSync();
+        this.startPositionSync();
+        this.updateStatus(`Playing vs ${opponentName} (you are ${this.ourColor}) - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);            
+    } catch (error) {
+        console.error('Error setting up multiplayer game:', error);
+        this.updateStatus('Error setting up game');
     }
+}
 
     updateGameUIForMultiplayer(ourColor, opponentName) {
         const whiteLabel = document.querySelector('.player-top .player-label');
@@ -3002,30 +3020,42 @@ class ChessMultiplayer {
         alert('Server has been deactivated. Please try again later.');
     }
 
+    // Enhanced handleOpponentMove to receive and apply position
     handleOpponentMove(data) {
-      if (this.currentGame && this.currentGame.id === data.gameId) {
-        console.log('Processing opponent move:', data.move);
-        
-        // Always use the server's game state to ensure consistency
-        if (data.gameState) {
-            this.currentGame = data.gameState;
-            this.applyServerGameState(data.gameState);
-        } else {
-            // Fallback: apply just the move
-            const moveWithPromotion = {
-                ...data.move,
-                promotion: data.move.promotion || null
-            };
-            this.engine.makeMove(moveWithPromotion);
+        if (this.currentGame && this.currentGame.id === data.gameId) {
+            console.log('Processing opponent move with FEN:', data.fen);
+            
+            // Always use the server's FEN position to ensure consistency
+            if (data.fen) {
+                try {
+                    this.engine.state = this.engine.parseFEN(data.fen);
+                    this.engine.moveHistory = [];
+                    this.engine.positionHistory = [this.engine.positionKey(this.engine.state)];
+                } catch (error) {
+                    console.error('Failed to parse server FEN:', error);
+                    // Fallback: apply just the move
+                    const moveWithPromotion = {
+                        ...data.move,
+                        promotion: data.move.promotion || null
+                    };
+                    this.engine.makeMove(moveWithPromotion);
+                }
+            } else {
+                // Fallback: apply just the move
+                const moveWithPromotion = {
+                    ...data.move,
+                    promotion: data.move.promotion || null
+                };
+                this.engine.makeMove(moveWithPromotion);
+            }
+            
+            // Update the board
+            render();
+            updateEvalBar();
+            refreshPanels();
+            
+            this.updateStatus(`Opponent moved - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
         }
-        
-        // Update the board
-        render();
-        updateEvalBar();
-        refreshPanels();
-        
-        this.updateStatus(`Opponent moved - ${this.isOurTurn() ? 'Your turn!' : 'Waiting for opponent...'}`);
-      }
     }
 
     handleJoinApproved(data) {
@@ -3041,7 +3071,60 @@ class ChessMultiplayer {
         this.updateStatus(`Join rejected: ${data.reason}`);
         this.disconnect();
     }
+    // Send current position to server
+    async sendCurrentPosition(gameId) {
+        if (!this.currentGame || !gameId) return false;
+        
+        try {
+            const currentFEN = this.engine.positionKey(this.engine.state);
+            
+            const response = await fetch(`${this.serverUrl}/api/update-chess-position`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientId: this.clientId,
+                    gameId: gameId,
+                    fen: currentFEN
+                })
+            });
+            
+            const data = await response.json();
+            return data.success;
+        } catch (error) {
+            console.error('Failed to send position:', error);
+            return false;
+        }
+    }
 
+    // Receive and apply position from server
+    async receivePositionFromServer(gameId) {
+        if (!this.currentGame || !gameId) return false;
+        
+        try {
+            const response = await fetch(`${this.serverUrl}/api/get-chess-position/${gameId}`);
+            const data = await response.json();
+            
+            if (data.success && data.fen) {
+                // Parse and apply the FEN position
+                this.engine.state = this.engine.parseFEN(data.fen);
+                
+                // Clear move history and position history
+                this.engine.moveHistory = [];
+                this.engine.positionHistory = [this.engine.positionKey(this.engine.state)];
+                
+                // Update UI
+                render();
+                updateEvalBar();
+                refreshPanels();
+                
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Failed to receive position:', error);
+            return false;
+        }
+    }
     // Enhanced makeMove method in ChessMultiplayer class
     async makeMove(move) {
         console.log('makeMove called:', { 
@@ -3110,6 +3193,7 @@ class ChessMultiplayer {
                     
                     console.log('Move successfully sent and applied locally');
                     this.updateStatus(`Move sent - waiting for opponent...`);
+                    await this.sendCurrentPosition(this.currentGame.id);
                     return true;
                     
                 } else if (data.requiresResync) {
@@ -3167,29 +3251,91 @@ class ChessMultiplayer {
         if (!this.currentGame) return false;
         
         try {
-            console.log('Forcing game state resynchronization');
+            console.log('Forcing game state resynchronization for game:', this.currentGame.id);
             
+            // Try GET endpoint first
             const response = await fetch(`${this.serverUrl}/api/force-sync/${this.currentGame.id}/${this.clientId}`);
-            const data = await response.json();
             
-            if (data.success) {
-                this.currentGame = data.gameState;
-                await this.applyServerGameState(this.currentGame);
-                this.updateStatus('Game state resynchronized');
-                return true;
+            if (!response.ok) {
+                // If GET fails, try POST
+                const postResponse = await fetch(`${this.serverUrl}/api/force-sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        gameId: this.currentGame.id,
+                        clientId: this.clientId
+                    })
+                });
+                
+                if (!postResponse.ok) {
+                    throw new Error(`Both GET and POST force-sync failed: ${postResponse.status}`);
+                }
+                
+                const data = await postResponse.json();
+                if (data.success) {
+                    this.currentGame = data.gameState;
+                    await this.applyServerGameState(this.currentGame);
+                    this.updateStatus('Game state resynchronized');
+                    return true;
+                }
+            } else {
+                const data = await response.json();
+                if (data.success) {
+                    this.currentGame = data.gameState;
+                    await this.applyServerGameState(this.currentGame);
+                    this.updateStatus('Game state resynchronized');
+                    return true;
+                }
             }
         } catch (error) {
             console.error('Force resync failed:', error);
+            // Fallback: try to get basic game state
+            try {
+                const basicResponse = await fetch(`${this.serverUrl}/api/chess-game/${this.currentGame.id}`);
+                const basicData = await basicResponse.json();
+                if (basicData.success) {
+                    this.currentGame = basicData.gameState;
+                    await this.applyServerGameState(this.currentGame);
+                    this.updateStatus('Game state recovered via fallback');
+                    return true;
+                }
+            } catch (fallbackError) {
+                console.error('Fallback resync also failed:', fallbackError);
+            }
         }
         
         return false;
     }
+startPositionSync() {
+    if (this.positionSyncInterval) {
+        clearInterval(this.positionSyncInterval);
+    }
+    
+    this.positionSyncInterval = setInterval(async () => {
+        if (this.currentGame && this.gameStarted) {
+            await this.sendCurrentPosition(this.currentGame.id);
+        }
+    }, 10000); // Sync position every 10 seconds
+}
 
+stopPositionSync() {
+    if (this.positionSyncInterval) {
+        clearInterval(this.positionSyncInterval);
+        this.positionSyncInterval = null;
+    }
+}
     // Enhanced method to apply server game state
     async applyServerGameState(serverGameState) {
         try {
-            // Parse FEN from server
-            this.engine.state = this.engine.parseFEN(serverGameState.fen);
+            // Parse FEN from server with fallback
+            let fenToUse = serverGameState.fen;
+            if (!fenToUse || fenToUse.split(' ').length < 6) {
+                console.warn('Invalid FEN from server, using default:', fenToUse);
+                console.warn(fenToUse);
+                fenToUse = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+            }
+            
+            this.engine.state = this.engine.parseFEN(fenToUse);
             
             // Clear and rebuild move history properly
             this.engine.moveHistory = [];
@@ -3199,8 +3345,6 @@ class ChessMultiplayer {
                 for (const moveRecord of serverGameState.moves) {
                     if (moveRecord && moveRecord.move) {
                         try {
-                            // Use a fresh engine state for each move to avoid corruption
-                            const tempEngine = new ChessEngine(serverGameState.fen);
                             const validMove = deepClone(moveRecord.move);
                             this.engine.makeMove(validMove);
                         } catch (moveError) {
@@ -3221,9 +3365,9 @@ class ChessMultiplayer {
         } catch (error) {
             console.error('Failed to apply server game state:', error);
             
-            // Fallback: reset to the FEN position
+            // Fallback: reset to starting position
             try {
-                this.engine.state = this.engine.parseFEN(serverGameState.fen);
+                this.engine.state = this.engine.parseFEN(START_FEN);
                 this.engine.moveHistory = [];
                 render();
                 updateEvalBar();
@@ -3329,22 +3473,37 @@ class ChessMultiplayer {
         }
         
         try {
-            // Use FEN for turn detection (most reliable)
-            const currentTurn = this.getCurrentTurnFromFEN(this.currentGame.fen);
-            const isOurTurn = (currentTurn === 'w' && this.ourColor === 'white') || 
-                            (currentTurn === 'b' && this.ourColor === 'black');
+            // Use both server FEN and local engine state for redundancy
+            const serverTurn = this.getCurrentTurnFromFEN(this.currentGame.fen);
+            const localTurn = this.engine.state.activeColor;
             
-            console.log('Turn check (FEN-based):', {
-                fen: this.currentGame.fen,
-                currentTurn: currentTurn,
+            console.log('Turn check:', {
+                serverFEN: this.currentGame.fen,
+                serverTurn: serverTurn,
+                localTurn: localTurn,
                 ourColor: this.ourColor,
-                isOurTurn: isOurTurn
+                serverSaysOurTurn: (serverTurn === 'w' && this.ourColor === 'white') || (serverTurn === 'b' && this.ourColor === 'black'),
+                localSaysOurTurn: (localTurn === 'w' && this.ourColor === 'white') || (localTurn === 'b' && this.ourColor === 'black')
             });
+            
+            // If server and local disagree, trust the server but log the issue
+            if (serverTurn !== localTurn) {
+                console.warn('Turn mismatch between server and client! Server:', serverTurn, 'Local:', localTurn);
+                // Force sync the local state to match server
+                this.engine.state.activeColor = serverTurn;
+            }
+            
+            const isOurTurn = (serverTurn === 'w' && this.ourColor === 'white') || 
+                            (serverTurn === 'b' && this.ourColor === 'black');
             
             return isOurTurn;
         } catch (error) {
             console.error('Error detecting turn:', error);
-            return false;
+            // Fallback to local engine state
+            const localTurn = this.engine.state.activeColor;
+            const isOurTurn = (localTurn === 'w' && this.ourColor === 'white') || 
+                            (localTurn === 'b' && this.ourColor === 'black');
+            return isOurTurn;
         }
     }
     
@@ -3443,7 +3602,30 @@ class ChessMultiplayer {
         document.getElementById('btnStart').style.display = 'block';
     }
 }
+// Add this function to help debug
+function debugMultiplayerState() {
+    if (!chessMultiplayer) return;
+    
+    console.log('=== MULTIPLAYER DEBUG INFO ===');
+    console.log('Our color:', chessMultiplayer.ourColor);
+    console.log('Server FEN:', chessMultiplayer.currentGame?.fen);
+    console.log('Local active color:', mainEngine.state.activeColor);
+    console.log('Is our turn:', chessMultiplayer.isOurTurn());
+    console.log('Legal moves for current player:', mainEngine.generateLegalMoves(mainEngine.state).length);
+    
+    // Log black's legal moves specifically
+    const blackMoves = mainEngine.generateLegalMoves(mainEngine.state)
+        .filter(move => {
+            const piece = mainEngine.state.board[move.from[0]][move.from[1]];
+            return piece && piece === piece.toLowerCase(); // black pieces are lowercase
+        });
+    console.log('Black legal moves:', blackMoves.length);
+    console.log('==============================');
+}
 
+// Call this when multiplayer game starts
+// Add to setupMultiplayerGame method after this.engine.state is set:
+debugMultiplayerState();
 // FIXED: Override the square click handler for multiplayer
 function createMultiplayerSquareClickHandler() {
     const originalOnSquareClick = onSquareClick;
@@ -3473,19 +3655,23 @@ async function handleMultiplayerSquareClick(r, c) {
         console.log('Sync check failed, but continuing:', error);
     }
     
-    if (!this.isOurTurn()) {
-        this.updateStatus('Not your turn! Wait for opponent.');
-        return;
-    }
-    
     const p = mainEngine.state.board[r][c];
     
+    // If we already have a piece selected, check if we're clicking on a target square
     if (mainEngine.selected) {
         const match = mainEngine.legalTargets.find(
             t => t.to[0] === r && t.to[1] === c
         );
         
         if (match) {
+            // FINAL turn validation - only check here when actually making a move
+            if (!this.isOurTurn()) {
+                this.updateStatus('Not your turn! Wait for opponent to move.');
+                // Keep selection for preview but don't allow move
+                render();
+                return;
+            }
+            
             console.log('Move match found:', match);
             
             // Enhanced validation
@@ -3508,7 +3694,7 @@ async function handleMultiplayerSquareClick(r, c) {
                 return;
             }
 
-            // Final turn check before sending
+            // Final turn check before sending (in case turn changed during validation)
             if (!this.isOurTurn()) {
                 this.updateStatus('Turn ended while selecting move!');
                 mainEngine.selected = null;
@@ -3545,47 +3731,60 @@ async function handleMultiplayerSquareClick(r, c) {
             }
             return;
         }
-
-        // If clicking on another piece of ours, change selection
-        if (p) {
-            const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
+    }
+    
+    // If no piece is selected OR we're changing selection, handle piece selection
+    if (p) {
+        const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
+        
+        // Only allow selecting our own pieces
+        if (pieceColor === this.ourColor) {
+            mainEngine.selected = [r, c];
+            mainEngine.legalTargets = mainEngine
+                .generateLegalMoves(mainEngine.state)
+                .filter(m => m.from[0] === r && m.from[1] === c);
+            render();
+            console.log('Selected piece, legal moves:', mainEngine.legalTargets.length);
             
-            // Only allow selecting our own pieces
-            if (pieceColor === this.ourColor) {
-                mainEngine.selected = [r, c];
-                mainEngine.legalTargets = mainEngine
-                    .generateLegalMoves(mainEngine.state)
-                    .filter(m => m.from[0] === r && m.from[1] === c);
-                render();
+            // Show turn status to user
+            if (!this.isOurTurn()) {
+                this.updateStatus(`Viewing moves for your ${pieceColor} pieces - waiting for opponent's turn`);
             } else {
-                this.updateStatus('Cannot select opponent pieces!');
+                this.updateStatus(`Your turn! Select a target square for your ${p} piece`);
+            }
+        } else {
+            // Clicked on opponent piece - if we have a selected piece, check if it can capture
+            if (mainEngine.selected) {
+                const canCapture = mainEngine.legalTargets.some(
+                    t => t.to[0] === r && t.to[1] === c && t.capture
+                );
+                
+                if (canCapture) {
+                    this.updateStatus('Click the opponent piece again to capture it');
+                } else {
+                    this.updateStatus('Cannot capture this piece with selected piece');
+                }
+            } else {
+                this.updateStatus('Cannot select opponent pieces! Select your own pieces.');
+            }
+        }
+    } else {
+        // Clicked on empty square
+        if (mainEngine.selected) {
+            // If we have a selected piece and clicked on empty non-target square, clear selection only if not our turn
+            if (!this.isOurTurn()) {
                 mainEngine.selected = null;
                 mainEngine.legalTargets = [];
                 render();
-            }
-        } else {
-            // Clicked on empty square - clear selection
-            mainEngine.selected = null;
-            mainEngine.legalTargets = [];
-            render();
-        }
-    } else {
-        // No current selection - try to select a piece
-        if (p) {
-            const pieceColor = p === p.toUpperCase() ? 'white' : 'black';
-            
-            if (pieceColor === this.ourColor) {
-                mainEngine.selected = [r, c];
-                mainEngine.legalTargets = mainEngine
-                    .generateLegalMoves(mainEngine.state)
-                    .filter(m => m.from[0] === r && m.from[1] === c);
-                render();
-                console.log('Selected piece, legal moves:', mainEngine.legalTargets.length);
+                this.updateStatus('Waiting for opponent to move...');
             } else {
-                this.updateStatus('Cannot select opponent pieces!');
+                // It's our turn but clicked on invalid square - show error but keep selection
+                this.updateStatus('Invalid move - select a highlighted target square');
+                render();
             }
         } else {
-            this.updateStatus('No piece at this square');
+            // No selection and clicked empty square
+            this.updateStatus('Select one of your pieces to see possible moves');
         }
     }
 }
